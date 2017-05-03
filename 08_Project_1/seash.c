@@ -1,0 +1,64 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <string.h>
+#include "command.h"
+#include "getcommand.h"
+#include "util.h"
+
+#define PROMPT "->"
+#define DEBUG 1
+
+static int iscd(commandlist *);
+
+int main(void)
+{
+   commandlist *clist;
+
+   while (1)
+   {
+      printf("%s ", PROMPT);
+      fflush(stdout);
+      clist = getcommandlist(stdin);
+      if (clist == NULL)
+      {
+         if (feof(stdin))
+         {
+            break;
+         }
+      }
+      else
+      {
+#if DEBUG
+         print_commandlist(clist);
+#endif
+         if (valid_commandlist(clist))
+         {
+            if (iscd(clist))
+            {
+               // Handle changing directories
+            }
+            else
+            {
+               // Execute the command list
+            }
+         }
+         delete_commandlist(clist);
+         free(clist);
+      }
+   }
+   return 0;
+}
+
+static int iscd(commandlist *clist)
+{
+   return clist != NULL && clist->head != NULL && clist->head->cmd != NULL
+      && (strcmp(clist->head->cmd, "cd") == 0);
+}
