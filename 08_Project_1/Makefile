@@ -1,14 +1,14 @@
 CC = gcc
 CFLAGS = -Wall -pedantic -g
 MAIN = seash
-MAIN_OBJS = seash.o getcommand.o util.o list.o command.o cd.o
+MAIN_OBJS = seash.o getcommand.o util.o list.o command.o cd.o execute_commandlist.o
 
 all : $(MAIN)
 
 $(MAIN) : $(MAIN_OBJS)
 	$(CC) $(CFLAGS) -o $(MAIN) $(MAIN_OBJS)
 
-$(MAIN).o : $(MAIN).c getcommand.h command.h util.h
+$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h execute_commandlist.h
 	$(CC) $(CFLAGS) -c $(MAIN).c
 
 getcommand.o : getcommand.c getcommand.h command.h util.h list.h
@@ -23,8 +23,11 @@ list.o : list.c list.h util.h
 command.o : command.c command.h list.h util.h
 	$(CC) $(CFLAGS) -c command.c
 
-cd.o : cd.c cd.h
+cd.o : cd.c cd.h command.h
 	$(CC) $(CFLAGS) -c cd.c
+
+execute_commandlist.o: execute_commandlist.c execute_commandlist.h command.h
+	$(CC) $(CFLAGS) -c execute_commandlist.c
 
 clean :
 	rm *.o $(MAIN) core*

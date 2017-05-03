@@ -13,6 +13,7 @@
 #include "getcommand.h"
 #include "util.h"
 #include "cd.h"
+#include "execute_commandlist.h"
 
 #define PROMPT "->"
 #define DEBUG 1
@@ -50,6 +51,7 @@ int main(void)
             else
             {
                // Execute the command list
+	       execute_commandlist(clist);
             }
          }
          delete_commandlist(clist);
