@@ -17,6 +17,7 @@ command * new_command()
 {
    command *tmp = (command *)safe_malloc(sizeof(command));
    tmp->args = (struct list*)safe_malloc(sizeof(struct list));
+   tmp->args->len = 0;
    tmp->args->head = tmp->args->tail = NULL;
    tmp->cmd = tmp->in = tmp->out = NULL;
    tmp->next_one = NULL;
