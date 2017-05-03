@@ -12,6 +12,7 @@
 #include "command.h"
 #include "getcommand.h"
 #include "util.h"
+#include "cd.h"
 
 #define PROMPT "->"
 #define DEBUG 1
@@ -44,6 +45,7 @@ int main(void)
             if (iscd(clist))
             {
                // Handle changing directories
+	       cd(clist->head);
             }
             else
             {
