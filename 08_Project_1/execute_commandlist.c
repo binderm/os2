@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/wait.h>
+#include <signal.h>
 #include "execute_commandlist.h"
 
 #define DEBUG 1
@@ -63,6 +64,8 @@ int execute_command(command *com, int *in, int last) {
 		}
 		execvp(file, argv);
 		perror("Failed to exec");
+		int real_child_pid = getpid();
+		kill(real_child_pid, SIGKILL);
 		return -1;
 	} else if (child_pid < 0) {
 		perror("Failed to fork");
