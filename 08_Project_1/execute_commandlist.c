@@ -8,19 +8,21 @@
 
 #define DEBUG 1
 
-int execute_command(command *);
+int execute_command(command *, int *, int);
 
 int execute_commandlist(commandlist *clist) {
 	int command_result = 0;
+	int in = STDIN_FILENO;
 	for (command *com = clist->head;
 			!(command_result || com == NULL);
 			com = com->next_one) {
-		command_result = execute_command(com);
+		int last = com == clist->tail;
+		command_result = execute_command(com, &in, last);
 	}
 	return command_result;
 }
 
-int execute_command(command *com) {
+int execute_command(command *com, int *in, int last) {
 	char *file = com->cmd;
 	int argc = com->args->len;
 	char *argv[2 + argc];
@@ -31,19 +33,27 @@ int execute_command(command *com) {
 	}
 	argv[1 + argc] = NULL;
 
-	int in = STDIN_FILENO, out = STDOUT_FILENO;
-	if (com->in != NULL && (in = open(com->in, O_RDWR)) < 0) {
+	int out = STDOUT_FILENO, next_in;
+	if (com->in != NULL && (*in = open(com->in, O_RDWR)) < 0) {
 		perror("Failed to open file for input redirection.");
 		return -1;
 	}
-	if (com->out != NULL && (out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
+	if (!last) {
+		int pipe_fd[2];
+		if (pipe(pipe_fd)) {
+			perror("Failed to create pipe");
+			return -1;
+		}
+		out = pipe_fd[1];
+		next_in = pipe_fd[0];
+	} else if (com->out != NULL && (out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
 		perror("Failed to open file for output redirection.");
 		return -1;
 	}
 
 	pid_t child_pid = fork();
 	if (child_pid == 0) {
-		if (in != STDIN_FILENO && dup2(in, STDIN_FILENO) != STDIN_FILENO) {
+		if (*in != STDIN_FILENO && dup2(*in, STDIN_FILENO) != STDIN_FILENO) {
 			perror("Failed to redirect input from file");
 			return -1;
 		}
@@ -59,13 +69,16 @@ int execute_command(command *com) {
 		return -1;
 	}
 
-	if (in != STDIN_FILENO && close(in)) {
+	if (*in != STDIN_FILENO && close(*in)) {
 		perror("Failed to close parent copy of file for input redirection");
 		return -1;
 	}
 	if (out != STDOUT_FILENO && close(out)) {
 		perror("Failed to close parent copy of file for output redirection");
 		return -1;
+	}
+	if (!last) {
+		*in = next_in;
 	}
 
 #if DEBUG
