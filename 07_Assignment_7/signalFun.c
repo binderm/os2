@@ -3,6 +3,9 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <wait.h>
+#include <stdlib.h>
+
+#define HANDLED_SIGNAL_COUNT 5
 
 int register_signal_handler(int);
 void handle_signal(int, siginfo_t *, void *);
@@ -13,21 +16,19 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
-	if (register_signal_handler(SIGINT)
-			|| register_signal_handler(SIGILL)
-			|| register_signal_handler(SIGQUIT)
-			|| register_signal_handler(SIGTERM)
-			|| register_signal_handler(SIGCHLD)) {
-		return -1;
+	int handled_signals[HANDLED_SIGNAL_COUNT] = {SIGINT, SIGILL, SIGQUIT, SIGTERM, SIGCHLD};
+	for (int i = 0; i < HANDLED_SIGNAL_COUNT; i++) {
+		if (register_signal_handler(handled_signals[i])) {
+			return -1;
+		}
 	}
 
 	char *child_file = argv[1];
 	pid_t child_pid = fork();
 	if (child_pid == 0) {
-		if (execvp(child_file, &argv[2])) {
-			perror("Failed to execute child");
-			return -1;
-		}
+		execvp(child_file, &argv[2]);
+		perror("Failed to execute child");
+		exit(-1);
 	} else if (child_pid == -1) {
 		perror("Failed to fork a child process");
 		return -1;
@@ -77,8 +78,8 @@ void handle_signal(int signum, siginfo_t *siginfo, void *context) {
 			} else if (wait_result == 0) {
 				printf("%d: My child(%d) is growing up!\n", signum, child_pid);
 			} else if (WIFEXITED(child_status)
-				|| WIFSIGNALED(child_status)) {
-					printf("%d: First you forked my child(%d), and now this...\n", signum, child_pid);
+					|| WIFSIGNALED(child_status)) {
+				printf("%d: First you forked my child(%d), and now this...\n", signum, child_pid);
 			} else {
 				fprintf(stderr, "Status of child(%d) changed but failed to determine if it has terminated", child_pid);
 			}
