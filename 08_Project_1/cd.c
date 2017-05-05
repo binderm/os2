@@ -2,24 +2,17 @@
 #include <unistd.h>
 #include "cd.h"
 
-#define DEBUG 1
-
 int validate_cd(command *);
 
-int cd(command *com) {
+void cd(command *com) {
 	if (validate_cd(com)) {
-		return -1;
+		return;
 	}
 
 	char *path = com->args->head->str;
 	if (chdir(path)) {
 		perror("Failed to change directory");
-		return -1;
 	}
-#if DEBUG
-	printf("Working directory is now %s\n", path);
-#endif
-	return 0;
 }
 
 int validate_cd(command *com) {

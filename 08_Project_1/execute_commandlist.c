@@ -11,7 +11,7 @@
 
 int execute_command(command *, int *, int);
 
-int execute_commandlist(commandlist *clist) {
+void execute_commandlist(commandlist *clist) {
 	int command_result = 0;
 	int in = STDIN_FILENO;
 	for (command *com = clist->head;
@@ -20,7 +20,9 @@ int execute_commandlist(commandlist *clist) {
 		int last = com == clist->tail;
 		command_result = execute_command(com, &in, last);
 	}
-	return command_result;
+	if (command_result && in != STDIN_FILENO && close(in)) {
+		perror("Failed to close in after unsuccessful command or pipeline error");
+	}
 }
 
 int execute_command(command *com, int *in, int last) {

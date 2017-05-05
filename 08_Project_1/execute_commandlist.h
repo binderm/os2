@@ -3,6 +3,6 @@
 
 #include "command.h"
 
-int execute_commandlist(commandlist *);
+void execute_commandlist(commandlist *);
 
 #endif

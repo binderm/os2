@@ -3,6 +3,6 @@
 
 #include "command.h"
 
-int cd(command *);
+void cd(command *);
 
 #endif
