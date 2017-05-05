@@ -1,3 +1,6 @@
+#include <errno.h>
+#include <string.h>
+
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -7,25 +10,43 @@
 #include <stdlib.h>
 #include "execute_commandlist.h"
 
-#define DEBUG 1
-
 int execute_command(command *, int *, int);
 
+/**
+ * Close the given file descriptor.
+ * If closing fails an error message is printed to stderr.
+ * Standard file descriptors (stdin, stdout) are not closed.
+ *
+ * @param fd the file descriptor to be closed
+ * @return 0 if file descriptor has been closed successfully or it was one of stdin or stdout, otherwise not 0
+ */
+int safe_close(int fd) {
+	if (fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+		return 0;
+	}
+	if (close(fd)) {
+		fprintf(stderr, "seash: Failed to close file descriptor %d: %s\n", fd, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
 void execute_commandlist(commandlist *clist) {
-	int command_result = 0;
+	int pipeline_running = 0;
 	int in = STDIN_FILENO;
 	for (command *com = clist->head;
-			!(command_result || com == NULL);
+			!(pipeline_running || com == NULL);
 			com = com->next_one) {
 		int last = com == clist->tail;
-		command_result = execute_command(com, &in, last);
-	}
-	if (command_result && in != STDIN_FILENO && close(in)) {
-		perror("Failed to close in after unsuccessful command or pipeline error");
+		if ((pipeline_running = execute_command(com, &in, last))) {
+			safe_close(in);
+			fprintf(stderr, "seash: Pipeline aborted\n");
+		}
 	}
 }
 
 int execute_command(command *com, int *in, int last) {
+	// extract command name and arguments
 	char *file = com->cmd;
 	int argc = com->args->len;
 	char *argv[2 + argc];
@@ -36,6 +57,7 @@ int execute_command(command *com, int *in, int last) {
 	}
 	argv[1 + argc] = NULL;
 
+	// redirection and pipeing
 	int out = STDOUT_FILENO, next_in;
 	if (com->in != NULL && (*in = open(com->in, O_RDWR)) < 0) {
 		perror("Failed to open file for input redirection.");
@@ -54,6 +76,7 @@ int execute_command(command *com, int *in, int last) {
 		return -1;
 	}
 
+	// create child process
 	pid_t child_pid = fork();
 	if (child_pid == 0) {
 		if (*in != STDIN_FILENO && dup2(*in, STDIN_FILENO) != STDIN_FILENO) {
@@ -78,22 +101,18 @@ int execute_command(command *com, int *in, int last) {
 		return -1;
 	}
 
-	if (*in != STDIN_FILENO && close(*in)) {
-		perror("Failed to close parent copy of file for input redirection");
+	// close redirection and pipe streams, remember read end of pipe for next command
+	if (safe_close(*in)) {
 		return -1;
 	}
-	if (out != STDOUT_FILENO && close(out)) {
-		perror("Failed to close parent copy of file for output redirection");
+	if (safe_close(out)) {
 		return -1;
 	}
 	if (!last) {
 		*in = next_in;
 	}
 
-#if DEBUG
-	printf("child_pid=%d\n", child_pid);
-#endif
-
+	// wait for termination of child process (either natural or by signal)
 	int child_status;
 	do {
 		if (waitpid(child_pid, &child_status, 0) != child_pid) {
@@ -101,6 +120,8 @@ int execute_command(command *com, int *in, int last) {
 			return -1;
 		}
 	} while (!(WIFEXITED(child_status) || WIFSIGNALED(child_status)));
+
+	// query exit status of child process in case of natural termination
 	return WIFEXITED(child_status)
 		?  WEXITSTATUS(child_status)
 		: -1;
