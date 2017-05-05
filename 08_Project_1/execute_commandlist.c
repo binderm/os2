@@ -8,11 +8,14 @@
 #include <stdio.h>
 #include <sys/wait.h>
 #include <stdlib.h>
+#include <signal.h>
 #include "execute_commandlist.h"
 
-#define CL_INTERMEDIATE 0x0
-#define CL_BEGIN 0x1
-#define CL_END 0x2
+#define PIPELINE_INTERMEDIATE 0x0
+#define PIPELINE_START 0x1
+#define PIPELINE_END 0x2
+#define IS_PIPELINE_START(command_location) ((command_location & PIPELINE_START) == PIPELINE_START)
+#define IS_PIPELINE_END(command_location) ((command_location & PIPELINE_END) == PIPELINE_END)
 
 int execute_command(command *, int, int *);
 char **get_argv(command *);
@@ -39,19 +42,19 @@ int safe_close(int fd) {
 
 void execute_commandlist(commandlist *clist) {
 	int pipeline_running = 0;
-	int com_location = CL_BEGIN;
+	int command_location = PIPELINE_START;
 	int in;
 	for (command *com = clist->head;
 			!(pipeline_running || com == NULL);
 			com = com->next_one) {
 		if (com == clist->tail) {
-			com_location |= CL_END;
+			command_location |= PIPELINE_END;
 		}
-		if ((pipeline_running = execute_command(com, com_location, &in))) {
+		if ((pipeline_running = execute_command(com, command_location, &in))) {
 			safe_close(in);
 			fprintf(stderr, "seash: Pipeline aborted\n");
 		}
-		com_location = CL_INTERMEDIATE;
+		command_location = PIPELINE_INTERMEDIATE;
 	}
 }
 
@@ -63,10 +66,16 @@ int redirect(int old_fd, int new_fd) {
 	return 0;
 }
 
-int execute_command(command *com, int com_location, int *in) {
+void safe_kill(pid_t pid) {
+	if (kill(pid, SIGKILL)) {
+		fprintf(stderr, "seash: Failed to kill child %d: %s\n", pid, strerror(errno));
+	}
+}
+
+int execute_command(command *com, int command_location, int *in) {
 	// redirection and pipeing
 	int out, next_in;
-	if (setup_streams(com, com_location, in, &out, &next_in)) {
+	if (setup_streams(com, command_location, in, &out, &next_in)) {
 		return -1;
 	}
 
@@ -76,26 +85,27 @@ int execute_command(command *com, int com_location, int *in) {
 		if (redirect(*in, STDIN_FILENO) | redirect(out, STDOUT_FILENO)) {
 			exit(-1);
 		}
-		if (!(com_location & CL_END) && safe_close(next_in)) {
+		if (!IS_PIPELINE_END(command_location) && safe_close(next_in)) {
 			exit(-1);
 		}
 
 		// extract command name and arguments
 		char **argv = get_argv(com);
 		execvp(argv[0], argv);
-		perror("Failed to exec");
+		fprintf(stderr, "seash: Failed to change process image of child %d to %s: %s\n", getpid(), argv[0], strerror(errno));
 		free(argv);
 		exit(-1);
 	} else if (child_pid < 0) {
-		perror("Failed to fork");
+		perror("seash: Failed to fork");
 		return -1;
 	}
 
 	// close redirection and pipe streams, remember read end of pipe for next command
 	if (safe_close(*in) | safe_close(out)) {
+		safe_kill(child_pid);
 		return -1;
 	}
-	if (!(com_location & CL_END)) {
+	if (!IS_PIPELINE_END(command_location)) {
 		*in = next_in;
 	}
 
@@ -127,8 +137,8 @@ char **get_argv(command *com) {
 	return argv;
 }
 
-int setup_streams(command *com, int com_location, int *in, int *out, int *next_in) {
-	if ((com_location & CL_BEGIN) == CL_BEGIN) {
+int setup_streams(command *com, int command_location, int *in, int *out, int *next_in) {
+	if (IS_PIPELINE_START(command_location)) {
 		int in_redirect = com->in != NULL;
 		if (in_redirect) {
 			if ((*in = open(com->in, O_RDWR)) < 0) {
@@ -140,7 +150,7 @@ int setup_streams(command *com, int com_location, int *in, int *out, int *next_i
 		}
 	}
 
-	if ((com_location & CL_END) == CL_END) {
+	if (IS_PIPELINE_END(command_location)) {
 		int out_redirect = com->out != NULL;
 		if (out_redirect) {
 			if ((*out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
