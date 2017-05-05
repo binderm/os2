@@ -23,7 +23,7 @@ int setup_streams(command *, int *, int *, int *);
  * @return 0 if file descriptor has been closed successfully or it was one of stdin or stdout, otherwise not 0
  */
 int safe_close(int fd) {
-	if (fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+	if (fd < 0 || fd == STDIN_FILENO || fd == STDOUT_FILENO) {
 		return 0;
 	}
 	if (close(fd)) {
@@ -35,7 +35,7 @@ int safe_close(int fd) {
 
 void execute_commandlist(commandlist *clist) {
 	int pipeline_running = 0;
-	int in = STDIN_FILENO;
+	int in = -1;
 	for (command *com = clist->head;
 			!(pipeline_running || com == NULL);
 			com = com->next_one) {
@@ -123,13 +123,15 @@ char **get_argv(command *com) {
 }
 
 int setup_streams(command *com, int *in, int *out, int *next_in) {
-	if (*in == STDIN_FILENO) {
+	if (*in < 0) {
 		int in_redirect = com->in != NULL;
 		if (in_redirect) {
 			if ((*in = open(com->in, O_RDWR)) < 0) {
 				perror("Failed to open file for input redirection.");
 				return -1;
 			}
+		} else {
+			*in = STDIN_FILENO;
 		}
 	}
 
