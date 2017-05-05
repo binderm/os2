@@ -12,6 +12,7 @@
 
 int execute_command(command *, int *, int, int);
 char **get_argv(command *);
+int setup_streams(command *, int, int, int *, int *, int *);
 
 /**
  * Close the given file descriptor.
@@ -50,37 +51,8 @@ void execute_commandlist(commandlist *clist) {
 int execute_command(command *com, int *in, int first, int last) {
 	// redirection and pipeing
 	int out, next_in;
-	if (first) {
-		int in_redirect_active = com->in != NULL;
-		if (in_redirect_active) {
-			if ((*in = open(com->in, O_RDWR)) < 0) {
-				perror("Failed to open file for input redirection.");
-				return -1;
-			}
-		} else {
-			*in = STDIN_FILENO;
-		}
-	}
-
-	if (last) {
-		int out_redirect_active = com->out != NULL;
-		if (out_redirect_active) {
-			if ((out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
-				perror("Failed to open file for output redirection.");
-				return -1;		
-			}	
-		} else {
-			out = STDOUT_FILENO;
-		}
-	} else {
-		int pipe_fd[2];
-		if (pipe(pipe_fd)) {
-			perror("Failed to create pipe");
-			return -1;
-		}
-		out = pipe_fd[1];
-		next_in = pipe_fd[0];
-
+	if (setup_streams(com, first, last, in, &out, &next_in)) {
+		return -1;
 	}
 
 	// create child process
@@ -100,7 +72,7 @@ int execute_command(command *com, int *in, int first, int last) {
 				exit(-1);
 			}
 		}
-		
+
 		// extract command name and arguments
 		char **argv = get_argv(com);
 		execvp(argv[0], argv);
@@ -149,4 +121,40 @@ char **get_argv(command *com) {
 	}
 	argv[1 + argc] = NULL;
 	return argv;
+}
+
+int setup_streams(command *com, int first, int last, int *in, int *out, int *next_in) {
+	if (first) {
+		int in_redirect = com->in != NULL;
+		if (in_redirect) {
+			if ((*in = open(com->in, O_RDWR)) < 0) {
+				perror("Failed to open file for input redirection.");
+				return -1;
+			}
+		} else {
+			*in = STDIN_FILENO;
+		}
+	}
+
+	if (last) {
+		int out_redirect = com->out != NULL;
+		if (out_redirect) {
+			if ((*out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
+				perror("Failed to open file for output redirection.");
+				return -1;		
+			}	
+		} else {
+			*out = STDOUT_FILENO;
+		}
+	} else {
+		int pipe_fd[2];
+		if (pipe(pipe_fd)) {
+			perror("Failed to create pipe");
+			return -1;
+		}
+		*out = pipe_fd[1];
+		*next_in = pipe_fd[0];
+
+	}
+	return 0;
 }
