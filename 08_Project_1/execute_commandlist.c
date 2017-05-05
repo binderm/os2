@@ -40,36 +40,39 @@ int safe_close(int fd) {
 	return 0;
 }
 
+void safe_kill(pid_t pid, int sig) {
+	if (kill(pid, sig)) {
+		fprintf(stderr, "seash: Failed to send signal %i to %d: %s\n",
+				sig, pid, strerror(errno));
+	}
+}
+
 void execute_commandlist(commandlist *clist) {
-	int pipeline_running = 0;
-	int command_location = PIPELINE_START;
-	int in;
-	for (command *com = clist->head;
-			!(pipeline_running || com == NULL);
-			com = com->next_one) {
+	int command_location = PIPELINE_START, in;
+	for (command *com = clist->head; com != NULL; com = com->next_one) {
 		if (com == clist->tail) {
 			command_location |= PIPELINE_END;
 		}
-		if ((pipeline_running = execute_command(com, command_location, &in))) {
+		if (execute_command(com, command_location, &in)) {
+			fprintf(stderr, "seash: Pipeline aborted at %s. Terminating all child processes\n", com->cmd);
 			safe_close(in);
-			fprintf(stderr, "seash: Pipeline aborted\n");
+			safe_kill(0, SIGTERM);
+			return;
 		}
 		command_location = PIPELINE_INTERMEDIATE;
 	}
+
+	pid_t terminated_child_pid;
+	while ((terminated_child_pid = wait(NULL)) > 0);
 }
 
 int redirect(int old_fd, int new_fd) {
 	if (old_fd != new_fd && dup2(old_fd, new_fd) != new_fd) {
-		perror("Failed to redirect input from file");
+		fprintf(stderr, "seash: Failed to rebind file descriptor %d to %d: %s\n",
+				old_fd, new_fd, strerror(errno));
 		return -1;
 	}
 	return 0;
-}
-
-void safe_kill(pid_t pid) {
-	if (kill(pid, SIGKILL)) {
-		fprintf(stderr, "seash: Failed to kill child %d: %s\n", pid, strerror(errno));
-	}
 }
 
 int execute_command(command *com, int command_location, int *in) {
@@ -93,8 +96,7 @@ int execute_command(command *com, int command_location, int *in) {
 		char **argv = get_argv(com);
 		execvp(argv[0], argv);
 		fprintf(stderr, "seash: Failed to change process image of child %d to %s: %s\n", getpid(), argv[0], strerror(errno));
-		free(argv);
-		exit(-1);
+		raise(SIGTERM);
 	} else if (child_pid < 0) {
 		perror("seash: Failed to fork");
 		return -1;
@@ -102,26 +104,14 @@ int execute_command(command *com, int command_location, int *in) {
 
 	// close redirection and pipe streams, remember read end of pipe for next command
 	if (safe_close(*in) | safe_close(out)) {
-		safe_kill(child_pid);
+		safe_kill(child_pid, SIGKILL);
+		safe_close(next_in);
 		return -1;
 	}
 	if (!IS_PIPELINE_END(command_location)) {
 		*in = next_in;
 	}
-
-	// wait for termination of child process (either natural or by signal)
-	int child_status;
-	do {
-		if (waitpid(child_pid, &child_status, 0) != child_pid) {
-			perror("Failed to wait for child");
-			return -1;
-		}
-	} while (!(WIFEXITED(child_status) || WIFSIGNALED(child_status)));
-
-	// query exit status of child process in case of natural termination
-	return WIFEXITED(child_status)
-		?  WEXITSTATUS(child_status)
-		: -1;
+	return 0;
 }
 
 char **get_argv(command *com) {
@@ -140,7 +130,7 @@ char **get_argv(command *com) {
 int safe_open(char *pathname, int flags, mode_t mode) {
 	int fd = open(pathname, flags, mode);
 	if (fd < 0) {
-		fprintf(stderr, "Failed to open %s: %s\n", pathname, strerror(errno));
+		fprintf(stderr, "Failed to open file %s: %s\n", pathname, strerror(errno));
 	}
 	return fd;
 }
@@ -154,7 +144,7 @@ int redirect_stdstream_if_needed(int stdstream, char *file_redirect, int flags, 
 int redirect_to_pipe(int *next_in) {
 	int pipe_fd[2];
 	if (pipe(pipe_fd)) {
-		perror("Failed to create pipe");
+		perror("seash: Failed to create pipe");
 		return -1;
 	}
 	*next_in = pipe_fd[0];
