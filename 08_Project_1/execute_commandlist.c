@@ -58,11 +58,17 @@ int execute_command(command *com, int *in, int last) {
 	if (child_pid == 0) {
 		if (*in != STDIN_FILENO && dup2(*in, STDIN_FILENO) != STDIN_FILENO) {
 			perror("Failed to redirect input from file");
-			return -1;
+			exit(-1);
 		}
-		if (out != STDOUT_FILENO && dup2(out, STDOUT_FILENO) != STDOUT_FILENO) {
-			perror("Failed to redirect output to file");
-			return -1;
+		if (out != STDOUT_FILENO) {
+			if (dup2(out, STDOUT_FILENO) != STDOUT_FILENO) {
+				perror("Failed to redirect output to file");
+				exit(-1);
+			}
+			if (close(next_in)) {
+				perror("Failed to close unneeded read end of pipeline in child process");
+				exit(-1);
+			}
 		}
 		execvp(file, argv);
 		perror("Failed to exec");
