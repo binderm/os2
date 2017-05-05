@@ -10,9 +10,9 @@
 #include <stdlib.h>
 #include "execute_commandlist.h"
 
-int execute_command(command *, int *, int, int);
+int execute_command(command *, int *);
 char **get_argv(command *);
-int setup_streams(command *, int, int, int *, int *, int *);
+int setup_streams(command *, int *, int *, int *);
 
 /**
  * Close the given file descriptor.
@@ -35,23 +35,21 @@ int safe_close(int fd) {
 
 void execute_commandlist(commandlist *clist) {
 	int pipeline_running = 0;
-	int in;
+	int in = STDIN_FILENO;
 	for (command *com = clist->head;
 			!(pipeline_running || com == NULL);
 			com = com->next_one) {
-		int first = com == clist->head;
-		int last = com == clist->tail;
-		if ((pipeline_running = execute_command(com, &in, first, last))) {
+		if ((pipeline_running = execute_command(com, &in))) {
 			safe_close(in);
 			fprintf(stderr, "seash: Pipeline aborted\n");
 		}
 	}
 }
 
-int execute_command(command *com, int *in, int first, int last) {
+int execute_command(command *com, int *in) {
 	// redirection and pipeing
 	int out, next_in;
-	if (setup_streams(com, first, last, in, &out, &next_in)) {
+	if (setup_streams(com, in, &out, &next_in)) {
 		return -1;
 	}
 
@@ -91,6 +89,7 @@ int execute_command(command *com, int *in, int first, int last) {
 	if (safe_close(out)) {
 		return -1;
 	}
+	int last = com->next_one == NULL;
 	if (!last) {
 		*in = next_in;
 	}
@@ -123,19 +122,18 @@ char **get_argv(command *com) {
 	return argv;
 }
 
-int setup_streams(command *com, int first, int last, int *in, int *out, int *next_in) {
-	if (first) {
+int setup_streams(command *com, int *in, int *out, int *next_in) {
+	if (*in == STDIN_FILENO) {
 		int in_redirect = com->in != NULL;
 		if (in_redirect) {
 			if ((*in = open(com->in, O_RDWR)) < 0) {
 				perror("Failed to open file for input redirection.");
 				return -1;
 			}
-		} else {
-			*in = STDIN_FILENO;
 		}
 	}
 
+	int last = com->next_one == NULL;
 	if (last) {
 		int out_redirect = com->out != NULL;
 		if (out_redirect) {
