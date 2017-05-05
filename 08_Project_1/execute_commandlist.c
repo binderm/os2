@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include "execute_commandlist.h"
 
-int execute_command(command *, int *, int);
+int execute_command(command *, int *, int, int);
 char **get_argv(command *);
 
 /**
@@ -34,26 +34,45 @@ int safe_close(int fd) {
 
 void execute_commandlist(commandlist *clist) {
 	int pipeline_running = 0;
-	int in = STDIN_FILENO;
+	int in;
 	for (command *com = clist->head;
 			!(pipeline_running || com == NULL);
 			com = com->next_one) {
+		int first = com == clist->head;
 		int last = com == clist->tail;
-		if ((pipeline_running = execute_command(com, &in, last))) {
+		if ((pipeline_running = execute_command(com, &in, first, last))) {
 			safe_close(in);
 			fprintf(stderr, "seash: Pipeline aborted\n");
 		}
 	}
 }
 
-int execute_command(command *com, int *in, int last) {
+int execute_command(command *com, int *in, int first, int last) {
 	// redirection and pipeing
-	int out = STDOUT_FILENO, next_in;
-	if (com->in != NULL && (*in = open(com->in, O_RDWR)) < 0) {
-		perror("Failed to open file for input redirection.");
-		return -1;
+	int out, next_in;
+	if (first) {
+		int in_redirect_active = com->in != NULL;
+		if (in_redirect_active) {
+			if ((*in = open(com->in, O_RDWR)) < 0) {
+				perror("Failed to open file for input redirection.");
+				return -1;
+			}
+		} else {
+			*in = STDIN_FILENO;
+		}
 	}
-	if (!last) {
+
+	if (last) {
+		int out_redirect_active = com->out != NULL;
+		if (out_redirect_active) {
+			if ((out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
+				perror("Failed to open file for output redirection.");
+				return -1;		
+			}	
+		} else {
+			out = STDOUT_FILENO;
+		}
+	} else {
 		int pipe_fd[2];
 		if (pipe(pipe_fd)) {
 			perror("Failed to create pipe");
@@ -61,9 +80,7 @@ int execute_command(command *com, int *in, int last) {
 		}
 		out = pipe_fd[1];
 		next_in = pipe_fd[0];
-	} else if (com->out != NULL && (out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
-		perror("Failed to open file for output redirection.");
-		return -1;
+
 	}
 
 	// create child process
