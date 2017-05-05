@@ -11,6 +11,7 @@
 #include "execute_commandlist.h"
 
 int execute_command(command *, int *, int);
+char **get_argv(command *);
 
 /**
  * Close the given file descriptor.
@@ -46,17 +47,6 @@ void execute_commandlist(commandlist *clist) {
 }
 
 int execute_command(command *com, int *in, int last) {
-	// extract command name and arguments
-	char *file = com->cmd;
-	int argc = com->args->len;
-	char *argv[2 + argc];
-	argv[0] = file;
-	struct listnode *argn = com->args->head;
-	for (int arg = 0; arg < argc; arg++, argn = argn->next) {
-		argv[1 + arg] = argn->str;
-	}
-	argv[1 + argc] = NULL;
-
 	// redirection and pipeing
 	int out = STDOUT_FILENO, next_in;
 	if (com->in != NULL && (*in = open(com->in, O_RDWR)) < 0) {
@@ -93,8 +83,12 @@ int execute_command(command *com, int *in, int last) {
 				exit(-1);
 			}
 		}
-		execvp(file, argv);
+		
+		// extract command name and arguments
+		char **argv = get_argv(com);
+		execvp(argv[0], argv);
 		perror("Failed to exec");
+		free(argv);
 		exit(-1);
 	} else if (child_pid < 0) {
 		perror("Failed to fork");
@@ -125,4 +119,17 @@ int execute_command(command *com, int *in, int last) {
 	return WIFEXITED(child_status)
 		?  WEXITSTATUS(child_status)
 		: -1;
+}
+
+char **get_argv(command *com) {
+	char *file = com->cmd;
+	int argc = com->args->len;
+	char **argv = calloc(2 + argc, sizeof(char *));
+	argv[0] = file;
+	struct listnode *argn = com->args->head;
+	for (int arg = 0; arg < argc; arg++, argn = argn->next) {
+		argv[1 + arg] = argn->str;
+	}
+	argv[1 + argc] = NULL;
+	return argv;
 }
