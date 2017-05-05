@@ -10,9 +10,13 @@
 #include <stdlib.h>
 #include "execute_commandlist.h"
 
-int execute_command(command *, int *);
+#define CL_INTERMEDIATE 0x0
+#define CL_BEGIN 0x1
+#define CL_END 0x2
+
+int execute_command(command *, int, int *);
 char **get_argv(command *);
-int setup_streams(command *, int *, int *, int *);
+int setup_streams(command *, int, int *, int *, int *);
 
 /**
  * Close the given file descriptor.
@@ -35,40 +39,45 @@ int safe_close(int fd) {
 
 void execute_commandlist(commandlist *clist) {
 	int pipeline_running = 0;
-	int in = -1;
+	int com_location = CL_BEGIN;
+	int in;
 	for (command *com = clist->head;
 			!(pipeline_running || com == NULL);
 			com = com->next_one) {
-		if ((pipeline_running = execute_command(com, &in))) {
+		if (com == clist->tail) {
+			com_location |= CL_END;
+		}
+		if ((pipeline_running = execute_command(com, com_location, &in))) {
 			safe_close(in);
 			fprintf(stderr, "seash: Pipeline aborted\n");
 		}
+		com_location = CL_INTERMEDIATE;
 	}
 }
 
-int execute_command(command *com, int *in) {
+int redirect(int old_fd, int new_fd) {
+	if (old_fd != new_fd && dup2(old_fd, new_fd) != new_fd) {
+		perror("Failed to redirect input from file");
+		return -1;
+	}
+	return 0;
+}
+
+int execute_command(command *com, int com_location, int *in) {
 	// redirection and pipeing
 	int out, next_in;
-	if (setup_streams(com, in, &out, &next_in)) {
+	if (setup_streams(com, com_location, in, &out, &next_in)) {
 		return -1;
 	}
 
 	// create child process
 	pid_t child_pid = fork();
 	if (child_pid == 0) {
-		if (*in != STDIN_FILENO && dup2(*in, STDIN_FILENO) != STDIN_FILENO) {
-			perror("Failed to redirect input from file");
+		if (redirect(*in, STDIN_FILENO) | redirect(out, STDOUT_FILENO)) {
 			exit(-1);
 		}
-		if (out != STDOUT_FILENO) {
-			if (dup2(out, STDOUT_FILENO) != STDOUT_FILENO) {
-				perror("Failed to redirect output to file");
-				exit(-1);
-			}
-			if (close(next_in)) {
-				perror("Failed to close unneeded read end of pipeline in child process");
-				exit(-1);
-			}
+		if (!(com_location & CL_END) && safe_close(next_in)) {
+			exit(-1);
 		}
 
 		// extract command name and arguments
@@ -83,14 +92,10 @@ int execute_command(command *com, int *in) {
 	}
 
 	// close redirection and pipe streams, remember read end of pipe for next command
-	if (safe_close(*in)) {
+	if (safe_close(*in) | safe_close(out)) {
 		return -1;
 	}
-	if (safe_close(out)) {
-		return -1;
-	}
-	int last = com->next_one == NULL;
-	if (!last) {
+	if (!(com_location & CL_END)) {
 		*in = next_in;
 	}
 
@@ -122,8 +127,8 @@ char **get_argv(command *com) {
 	return argv;
 }
 
-int setup_streams(command *com, int *in, int *out, int *next_in) {
-	if (*in < 0) {
+int setup_streams(command *com, int com_location, int *in, int *out, int *next_in) {
+	if ((com_location & CL_BEGIN) == CL_BEGIN) {
 		int in_redirect = com->in != NULL;
 		if (in_redirect) {
 			if ((*in = open(com->in, O_RDWR)) < 0) {
@@ -135,8 +140,7 @@ int setup_streams(command *com, int *in, int *out, int *next_in) {
 		}
 	}
 
-	int last = com->next_one == NULL;
-	if (last) {
+	if ((com_location & CL_END) == CL_END) {
 		int out_redirect = com->out != NULL;
 		if (out_redirect) {
 			if ((*out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
@@ -154,7 +158,6 @@ int setup_streams(command *com, int *in, int *out, int *next_in) {
 		}
 		*out = pipe_fd[1];
 		*next_in = pipe_fd[0];
-
 	}
 	return 0;
 }
