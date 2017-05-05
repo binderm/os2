@@ -137,37 +137,45 @@ char **get_argv(command *com) {
 	return argv;
 }
 
+int safe_open(char *pathname, int flags, mode_t mode) {
+	int fd = open(pathname, flags, mode);
+	if (fd < 0) {
+		fprintf(stderr, "Failed to open %s: %s\n", pathname, strerror(errno));
+	}
+	return fd;
+}
+
+int redirect_stdstream_if_needed(int stdstream, char *file_redirect, int flags, mode_t mode) {
+	return file_redirect != NULL
+		? safe_open(file_redirect, flags, mode)
+		: stdstream;
+}
+
+int redirect_to_pipe(int *next_in) {
+	int pipe_fd[2];
+	if (pipe(pipe_fd)) {
+		perror("Failed to create pipe");
+		return -1;
+	}
+	*next_in = pipe_fd[0];
+	return pipe_fd[1];
+}
+
 int setup_streams(command *com, int command_location, int *in, int *out, int *next_in) {
 	if (IS_PIPELINE_START(command_location)) {
-		int in_redirect = com->in != NULL;
-		if (in_redirect) {
-			if ((*in = open(com->in, O_RDWR)) < 0) {
-				perror("Failed to open file for input redirection.");
-				return -1;
-			}
-		} else {
-			*in = STDIN_FILENO;
-		}
+		*in = redirect_stdstream_if_needed(STDIN_FILENO, com->in, O_RDWR, 0);
+	}
+	if (*in < 0) {
+		return -1;
 	}
 
-	if (IS_PIPELINE_END(command_location)) {
-		int out_redirect = com->out != NULL;
-		if (out_redirect) {
-			if ((*out = open(com->out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) < 0) {
-				perror("Failed to open file for output redirection.");
-				return -1;		
-			}	
-		} else {
-			*out = STDOUT_FILENO;
-		}
-	} else {
-		int pipe_fd[2];
-		if (pipe(pipe_fd)) {
-			perror("Failed to create pipe");
-			return -1;
-		}
-		*out = pipe_fd[1];
-		*next_in = pipe_fd[0];
+	*out = IS_PIPELINE_END(command_location)
+		? redirect_stdstream_if_needed(STDOUT_FILENO, com->out,
+				O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)
+		: redirect_to_pipe(next_in);
+	if (*out < 0) {
+		safe_close(*in);
+		return -1;
 	}
 	return 0;
 }
