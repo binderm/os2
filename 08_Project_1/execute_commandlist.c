@@ -47,6 +47,24 @@ void safe_kill(pid_t pid, int sig) {
 	}
 }
 
+void on_sigint(int sig, siginfo_t *siginfo, void *context) {
+	if (siginfo->si_pid != getpid()) {
+		kill(0, SIGINT);
+		while (wait(NULL) > 0);
+	}
+}
+
+int register_sigint_handler() {
+	struct sigaction act;
+	act.sa_sigaction = &on_sigint;
+	act.sa_flags = SA_SIGINFO;
+	if (sigaction(SIGINT, &act, NULL)) {
+		perror("seash: Failed to register signal handler for SIGINT");
+		return -1;
+	}
+	return 0;
+}
+
 void execute_commandlist(commandlist *clist) {
 	int command_location = PIPELINE_START, in;
 	for (command *com = clist->head; com != NULL; com = com->next_one) {
@@ -62,8 +80,7 @@ void execute_commandlist(commandlist *clist) {
 		command_location = PIPELINE_INTERMEDIATE;
 	}
 
-	pid_t terminated_child_pid;
-	while ((terminated_child_pid = wait(NULL)) > 0);
+	while (wait(NULL) > 0);
 }
 
 int redirect(int old_fd, int new_fd) {
@@ -85,6 +102,12 @@ int execute_command(command *com, int command_location, int *in) {
 	// create child process
 	pid_t child_pid = fork();
 	if (child_pid == 0) {
+		struct sigaction act;
+		act.sa_handler = SIG_DFL;
+		if (sigaction(SIGINT, &act, NULL)) {
+			perror("seash: Failed to unregister signal handler for SIGINT in child process");
+			exit(-1);
+		}
 		if (redirect(*in, STDIN_FILENO) | redirect(out, STDOUT_FILENO)) {
 			exit(-1);
 		}
@@ -96,7 +119,7 @@ int execute_command(command *com, int command_location, int *in) {
 		char **argv = get_argv(com);
 		execvp(argv[0], argv);
 		fprintf(stderr, "seash: Failed to change process image of child %d to %s: %s\n", getpid(), argv[0], strerror(errno));
-		raise(SIGTERM);
+		exit(-1);
 	} else if (child_pid < 0) {
 		perror("seash: Failed to fork");
 		return -1;

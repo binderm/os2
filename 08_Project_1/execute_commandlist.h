@@ -3,6 +3,7 @@
 
 #include "command.h"
 
+int register_sigint_handler();
 void execute_commandlist(commandlist *);
 
 #endif

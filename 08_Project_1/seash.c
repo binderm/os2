@@ -22,6 +22,9 @@ static int iscd(commandlist *);
 
 int main(void)
 {
+   if (register_sigint_handler()) {
+	   return -1;
+   }
    commandlist *clist;
 
    while (1)
