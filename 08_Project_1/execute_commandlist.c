@@ -81,6 +81,7 @@ void execute_commandlist(commandlist *clist) {
 	}
 
 	while (wait(NULL) > 0);
+	fflush(stdout);
 }
 
 int redirect(int old_fd, int new_fd) {
