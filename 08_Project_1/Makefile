@@ -3,6 +3,7 @@ CFLAGS = -Wall -pedantic -g
 MAIN = seash
 MAIN_OBJS = seash.o getcommand.o util.o list.o command.o cd.o execute_commandlist.o
 
+.PHONY: all
 all : $(MAIN)
 
 $(MAIN) : $(MAIN_OBJS)
@@ -29,8 +30,9 @@ cd.o : cd.c cd.h command.h
 execute_commandlist.o: execute_commandlist.c execute_commandlist.h command.h
 	$(CC) $(CFLAGS) -c execute_commandlist.c
 
+.PHONY: clean safe
 clean :
-	rm *.o $(MAIN) core*
+	rm -f  *.o $(MAIN) core*
 
 safe:
 	\cp *.c *.h Makefile ~/.backup
