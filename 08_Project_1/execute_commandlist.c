@@ -17,7 +17,7 @@
 #define IS_PIPELINE_START(command_location) ((command_location & PIPELINE_START) == PIPELINE_START)
 #define IS_PIPELINE_END(command_location) ((command_location & PIPELINE_END) == PIPELINE_END)
 
-int execute_command(command *, int, int *);
+int execute_command(command *, int, int *, sigset_t *);
 char **get_argv(command *);
 int setup_streams(command *, int, int *, int *, int *);
 
@@ -66,18 +66,29 @@ int register_sigint_handler() {
 }
 
 void execute_commandlist(commandlist *clist) {
+	sigset_t blocked_signals;
+	if (sigemptyset(&blocked_signals)
+		|| sigaddset(&blocked_signals, SIGINT)
+		|| sigprocmask(SIG_BLOCK, &blocked_signals, NULL)) {
+		perror("seash: Failed to block SIGINT before pipeline setup");
+		return;
+	}
 	int command_location = PIPELINE_START, in;
 	for (command *com = clist->head; com != NULL; com = com->next_one) {
 		if (com == clist->tail) {
 			command_location |= PIPELINE_END;
 		}
-		if (execute_command(com, command_location, &in)) {
+		if (execute_command(com, command_location, &in, &blocked_signals)) {
 			fprintf(stderr, "seash: Pipeline aborted at %s. Terminating all child processes\n", com->cmd);
 			safe_close(in);
 			safe_kill(0, SIGTERM);
 			return;
 		}
 		command_location = PIPELINE_INTERMEDIATE;
+	}
+	if (sigprocmask(SIG_UNBLOCK, &blocked_signals, NULL)) {
+		perror("seash: Failed to unblock SIGINT after pipeline setup. Terminating process");
+		exit(-1);
 	}
 
 	while (wait(NULL) > 0);
@@ -93,7 +104,7 @@ int redirect(int old_fd, int new_fd) {
 	return 0;
 }
 
-int execute_command(command *com, int command_location, int *in) {
+int execute_command(command *com, int command_location, int *in, sigset_t *blocked_signals) {
 	// redirection and pipeing
 	int out, next_in;
 	if (setup_streams(com, command_location, in, &out, &next_in)) {
@@ -107,6 +118,10 @@ int execute_command(command *com, int command_location, int *in) {
 		act.sa_handler = SIG_DFL;
 		if (sigaction(SIGINT, &act, NULL)) {
 			perror("seash: Failed to unregister signal handler for SIGINT in child process");
+			exit(-1);
+		}
+		if (sigprocmask(SIG_UNBLOCK, blocked_signals, NULL)) {
+			perror("seash: Failed to unblock SIGINT in child process");
 			exit(-1);
 		}
 		if (redirect(*in, STDIN_FILENO) | redirect(out, STDOUT_FILENO)) {
