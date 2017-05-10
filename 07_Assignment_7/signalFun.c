@@ -4,6 +4,8 @@
 #include <sys/types.h>
 #include <wait.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <string.h>
 
 #define HANDLED_SIGNAL_COUNT 5
 
@@ -16,7 +18,7 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
-	int handled_signals[HANDLED_SIGNAL_COUNT] = {SIGINT, SIGILL, SIGQUIT, SIGTERM, SIGCHLD};
+	int handled_signals[HANDLED_SIGNAL_COUNT] = {SIGINT, SIGILL, SIGQUIT, SIGTERM, SIGCLD};
 	for (int i = 0; i < HANDLED_SIGNAL_COUNT; i++) {
 		if (register_signal_handler(handled_signals[i])) {
 			return -1;
@@ -46,8 +48,8 @@ int register_signal_handler(int signum) {
 	act.sa_flags = SA_SIGINFO;
 
 	if (sigaction(signum, &act, NULL)) {
-		fprintf(stderr, "Failed to change signal action for signal %d: ", signum);
-		perror("");
+		fprintf(stderr, "Failed to change signal action for signal %d: %s\n",
+				signum, strerror(errno));
 		return -1;
 	}
 	return 0;
@@ -69,19 +71,16 @@ void handle_signal(int signum, siginfo_t *siginfo, void *context) {
 			break;
 		case SIGCLD:
 			;
-			pid_t child_pid = siginfo->si_pid;
 			int child_status;
-			pid_t wait_result = waitpid(child_pid, &child_status, WNOHANG);
-			if (wait_result < 0) {
-				fprintf(stderr, "Failed to query status of child %d: ", child_pid);
-				perror("");
-			} else if (wait_result == 0) {
-				printf("%d: My child(%d) is growing up!\n", signum, child_pid);
-			} else if (WIFEXITED(child_status)
-					|| WIFSIGNALED(child_status)) {
+			pid_t child_pid = waitpid(-1, &child_status, WNOHANG);
+			if (child_pid < 0) {
+				perror("Failed to query status of child");
+			} else if (child_pid == 0) {
+				printf("%d: My child is growing up!\n", signum);
+			} else if (WIFEXITED(child_status) || WIFSIGNALED(child_status)) {
 				printf("%d: First you forked my child(%d), and now this...\n", signum, child_pid);
 			} else {
-				fprintf(stderr, "Status of child(%d) changed but failed to determine if it has terminated", child_pid);
+				fprintf(stderr, "Received signal %d. Child %d has changed state but neither terminated nor stopped by a signal. Ignoring.\n", signum, child_pid);
 			}
 			break;
 		default:
