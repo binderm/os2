@@ -16,7 +16,7 @@
 #include "execute_commandlist.h"
 
 #define PROMPT "->"
-#define DEBUG 1
+#define DEBUG 0
 
 static int iscd(commandlist *);
 
