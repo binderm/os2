@@ -18,13 +18,13 @@
 #define IS_PIPELINE_END(command_location) ((command_location & PIPELINE_END) == PIPELINE_END)
 
 int safe_close(int);
-void safe_kill(pid_t, int);
+void kill_pipeline();
 int execute_command(command *, int, int *);
 int setup_streams(command *, int, int *, int *, int *);
 
 void execute_commandlist(commandlist *clist) {
 	if (block(SIGINT)) {
-		fprintf(stderr, "seash: [ERROR] failed to block SIGINT before pipeline setup --> cancelling\n");
+		fprintf(stderr, "seash: [ERROR] failed to block SIGINT before pipeline setup --> Cancel\n");
 		return;
 	}
 
@@ -34,16 +34,17 @@ void execute_commandlist(commandlist *clist) {
 			command_location |= PIPELINE_END;
 		}
 		if (execute_command(com, command_location, &in)) {
-			fprintf(stderr, "seash: [ERROR] during pipeline setup at point %s --> Terminating pipeline\n", com->cmd);
+			fprintf(stderr, "seash: [ERROR] during pipeline setup at point %s --> Kill pipeline\n", com->cmd);
 			safe_close(in);
-			safe_kill(0, SIGTERM);
+			kill_pipeline();
 			return;
 		}
 		command_location = PIPELINE_INTERMEDIATE;
 	}
 
 	if (unblock(SIGINT)) {
-		fprintf(stderr, "seash: [FATAL] Failed to unblock SIGINT after pipeline setup --> terminating shell\n");
+		fprintf(stderr, "seash: [FATAL] Failed to unblock SIGINT after pipeline setup --> Terminate shell\n");
+		kill_pipeline();
 		exit(-1);
 	}
 
@@ -62,10 +63,9 @@ int safe_close(int fd) {
 	return 0;
 }
 
-void safe_kill(pid_t pid, int sig) {
-	if (kill(pid, sig)) {
-		fprintf(stderr, "seash: Failed to send signal %i to %d: %s\n",
-				sig, pid, strerror(errno));
+void kill_pipeline() {
+	if (kill(0, SIGINT)) {
+		perror("seash: Failed to kill pipeline");
 	}
 }
 
@@ -89,12 +89,11 @@ int execute_command(command *com, int command_location, int *in) {
 	pid_t child_pid = fork();
 	if (child_pid == 0) {
 		if (reset_signal_handling()) {
-			fprintf(stderr, "seash: [ERROR] Failed to remove signal handling for child process --> terminating pipeline\n");			kill(getppid(), SIGINT);
+			fprintf(stderr, "seash: [ERROR] Failed to remove signal handling for child process\n");
 			exit(-1);
 		}
 		if (unblock(SIGINT)) {
-			fprintf(stderr, "seash: [ERROR] Failed to unblock SIGINT for child process --> terminating pipeline\n");
-			kill(getppid(), SIGINT);
+			fprintf(stderr, "seash: [ERROR] Failed to unblock SIGINT for child process\n");
 			exit(-1);
 		}
 		if (redirect(*in, STDIN_FILENO) | redirect(out, STDOUT_FILENO)) {
@@ -108,8 +107,7 @@ int execute_command(command *com, int command_location, int *in) {
 		char **argv = get_argv(com);
 		execvp(argv[0], argv);
 		fprintf(stderr, "seash: Failed to change process image of child %d to %s: %s\n", getpid(), argv[0], strerror(errno));
-		kill(getppid(), SIGINT);
-		raise(SIGINT);
+		exit(-1);
 	} else if (child_pid < 0) {
 		perror("seash: [ERROR] Failed to fork new child process");
 		return -1;
@@ -117,7 +115,6 @@ int execute_command(command *com, int command_location, int *in) {
 
 	// close redirection and pipe streams, remember read end of pipe for next command
 	if (safe_close(*in) | safe_close(out)) {
-		safe_kill(child_pid, SIGKILL);
 		safe_close(next_in);
 		return -1;
 	}
@@ -127,7 +124,7 @@ int execute_command(command *com, int command_location, int *in) {
 	return 0;
 }
 
-int safe_open(char *pathname, int flags, mode_t mode) {
+int from_to_file(char *pathname, int flags, mode_t mode) {
 	int fd = open(pathname, flags, mode);
 	if (fd < 0) {
 		fprintf(stderr, "seash: [ERROR] Failed to open file %s: %s\n", pathname, strerror(errno));
@@ -144,7 +141,7 @@ int safe_open(char *pathname, int flags, mode_t mode) {
  */
 int from_stdin_or_file(char *in) {
 	return in != NULL
-		? safe_open(in, O_RDWR, 0)
+		? from_to_file(in, O_RDWR, 0)
 		: STDIN_FILENO;
 }
 
@@ -157,7 +154,7 @@ int from_stdin_or_file(char *in) {
  */
 int to_stdout_or_file(char *out) {
 	return out != NULL
-		? safe_open(out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)
+		? from_to_file(out, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)
 		: STDOUT_FILENO;
 }
 
