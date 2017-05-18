@@ -23,7 +23,8 @@ static int iscd(commandlist *);
 
 int main(void)
 {
-   if (register_sigint_handler()) {
+   if (setup_signal_handling()) {
+	   fprintf(stderr, "seash: Failed to set up signal handling --> Terminate shell\n");
 	   return -1;
    }
    commandlist *clist;

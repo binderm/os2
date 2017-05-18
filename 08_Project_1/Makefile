@@ -9,7 +9,7 @@ all : $(MAIN)
 $(MAIN) : $(MAIN_OBJS)
 	$(CC) $(CFLAGS) -o $(MAIN) $(MAIN_OBJS)
 
-$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h signal_handling.o execute_commandlist.h
+$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h signal_handling.h execute_commandlist.h
 	$(CC) $(CFLAGS) -c $(MAIN).c
 
 getcommand.o : getcommand.c getcommand.h command.h util.h list.h
