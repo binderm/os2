@@ -7,7 +7,8 @@
 #include <stdio.h>
 #include <sys/wait.h>
 #include <stdlib.h>
-#include <signal.h>
+#include "arguments.h"
+#include "signal_handling.h"
 #include "execute_commandlist.h"
 
 #define PIPELINE_INTERMEDIATE 0x0
@@ -18,24 +19,22 @@
 
 int safe_close(int);
 void safe_kill(pid_t, int);
-int execute_command(command *, int, int *, sigset_t *);
+int execute_command(command *, int, int *);
 char **get_argv(command *);
 int setup_streams(command *, int, int *, int *, int *);
 
 void execute_commandlist(commandlist *clist) {
-	sigset_t blocked_signals;
-	if (sigemptyset(&blocked_signals)
-		|| sigaddset(&blocked_signals, SIGINT)
-		|| sigprocmask(SIG_BLOCK, &blocked_signals, NULL)) {
-		perror("seash: Failed to block SIGINT before pipeline setup");
+	if (block(SIGINT)) {
+		fprintf(stderr, "seash: [ERROR] failed to block SIGINT before pipeline setup --> cancelling\n");
 		return;
 	}
+
 	int command_location = PIPELINE_START, in;
 	for (command *com = clist->head; com != NULL; com = com->next_one) {
 		if (com == clist->tail) {
 			command_location |= PIPELINE_END;
 		}
-		if (execute_command(com, command_location, &in, &blocked_signals)) {
+		if (execute_command(com, command_location, &in)) {
 			fprintf(stderr, "seash: Pipeline aborted at %s. Terminating all child processes\n", com->cmd);
 			safe_close(in);
 			safe_kill(0, SIGTERM);
@@ -43,8 +42,8 @@ void execute_commandlist(commandlist *clist) {
 		}
 		command_location = PIPELINE_INTERMEDIATE;
 	}
-	if (sigprocmask(SIG_UNBLOCK, &blocked_signals, NULL)) {
-		perror("seash: Failed to unblock SIGINT after pipeline setup. Terminating process");
+	if (unblock(SIGINT)) {
+		fprintf(stderr, "seash: [FATAL] Failed to unblock SIGINT after pipeline setup --> terminating shell\n");
 		exit(-1);
 	}
 
@@ -79,7 +78,7 @@ int redirect(int old_fd, int new_fd) {
 	return 0;
 }
 
-int execute_command(command *com, int command_location, int *in, sigset_t *blocked_signals) {
+int execute_command(command *com, int command_location, int *in) {
 	// redirection and pipeing
 	int out, next_in;
 	if (setup_streams(com, command_location, in, &out, &next_in)) {
@@ -89,14 +88,13 @@ int execute_command(command *com, int command_location, int *in, sigset_t *block
 	// create child process
 	pid_t child_pid = fork();
 	if (child_pid == 0) {
-		struct sigaction act;
-		act.sa_handler = SIG_DFL;
-		if (sigaction(SIGINT, &act, NULL)) {
-			perror("seash: Failed to unregister signal handler for SIGINT in child process");
+		if (reset_signal_handling()) {
+			fprintf(stderr, "seash: [ERROR] Failed to remove signal handling for child process --> terminating pipeline\n");			kill(getppid(), SIGINT);
 			exit(-1);
 		}
-		if (sigprocmask(SIG_UNBLOCK, blocked_signals, NULL)) {
-			perror("seash: Failed to unblock SIGINT in child process");
+		if (unblock(SIGINT)) {
+			fprintf(stderr, "seash: [ERROR] Failed to unblock SIGINT for child process --> terminating pipeline\n");
+			kill(getppid(), SIGINT);
 			exit(-1);
 		}
 		if (redirect(*in, STDIN_FILENO) | redirect(out, STDOUT_FILENO)) {
@@ -127,19 +125,6 @@ int execute_command(command *com, int command_location, int *in, sigset_t *block
 		*in = next_in;
 	}
 	return 0;
-}
-
-char **get_argv(command *com) {
-	char *file = com->cmd;
-	int argc = com->args->len;
-	char **argv = calloc(2 + argc, sizeof(char *));
-	argv[0] = file;
-	struct listnode *argn = com->args->head;
-	for (int arg = 0; arg < argc; arg++, argn = argn->next) {
-		argv[1 + arg] = argn->str;
-	}
-	argv[1 + argc] = NULL;
-	return argv;
 }
 
 int safe_open(char *pathname, int flags, mode_t mode) {
