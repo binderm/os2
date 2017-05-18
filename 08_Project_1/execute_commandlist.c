@@ -20,7 +20,6 @@
 int safe_close(int);
 void safe_kill(pid_t, int);
 int execute_command(command *, int, int *);
-char **get_argv(command *);
 int setup_streams(command *, int, int *, int *, int *);
 
 void execute_commandlist(commandlist *clist) {

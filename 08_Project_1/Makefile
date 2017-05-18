@@ -9,7 +9,7 @@ all : $(MAIN)
 $(MAIN) : $(MAIN_OBJS)
 	$(CC) $(CFLAGS) -o $(MAIN) $(MAIN_OBJS)
 
-$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h arguments.h signal_handling.h execute_commandlist.h
+$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h signal_handling.h execute_commandlist.h
 	$(CC) $(CFLAGS) -c $(MAIN).c
 
 getcommand.o : getcommand.c getcommand.h command.h util.h list.h
@@ -33,7 +33,7 @@ arguments.o: arguments.c arguments.h command.h
 signal_handling.o: signal_handling.c signal_handling.h
 	$(CC) $(CFLAGS) -c signal_handling.c
 
-execute_commandlist.o: execute_commandlist.c execute_commandlist.h command.h
+execute_commandlist.o: execute_commandlist.c execute_commandlist.h command.h arguments.h signal_handling.h
 	$(CC) $(CFLAGS) -c execute_commandlist.c
 
 .PHONY: clean safe
