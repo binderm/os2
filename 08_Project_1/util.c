@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <errno.h>
+#include <unistd.h>
 #include "util.h"
 
 void *safe_malloc(size_t size)
@@ -39,3 +41,15 @@ char *safe_strdup(char *orig)
 
    return str;
 }
+
+int safe_close(int fd) {
+	if (fd < 0 || fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+		return 0;
+	}
+	if (close(fd)) {
+		fprintf(stderr, "seash: Failed to close file descriptor %d: %s\n", fd, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+

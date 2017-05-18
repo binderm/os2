@@ -24,7 +24,7 @@ static int iscd(commandlist *);
 int main(void)
 {
    if (setup_signal_handling()) {
-	   fprintf(stderr, "seash: Failed to set up signal handling --> Terminate shell\n");
+	   fprintf(stderr, "seash: Failed to set up signal handling\n");
 	   return -1;
    }
    commandlist *clist;

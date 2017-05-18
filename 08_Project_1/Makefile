@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -pedantic -g
 MAIN = seash
-MAIN_OBJS = seash.o getcommand.o util.o list.o command.o cd.o arguments.o signal_handling.o execute_commandlist.o
+MAIN_OBJS = seash.o getcommand.o util.o list.o command.o cd.o arguments.o signal_handling.o execute_commandlist.o pipeline.o
 
 .PHONY: all
 all : $(MAIN)
@@ -9,7 +9,7 @@ all : $(MAIN)
 $(MAIN) : $(MAIN_OBJS)
 	$(CC) $(CFLAGS) -o $(MAIN) $(MAIN_OBJS)
 
-$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h signal_handling.h execute_commandlist.h
+$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h signal_handling.h execute_commandlist.h pipeline.h
 	$(CC) $(CFLAGS) -c $(MAIN).c
 
 getcommand.o : getcommand.c getcommand.h command.h util.h list.h
@@ -33,8 +33,11 @@ arguments.o: arguments.c arguments.h command.h
 signal_handling.o: signal_handling.c signal_handling.h
 	$(CC) $(CFLAGS) -c signal_handling.c
 
-execute_commandlist.o: execute_commandlist.c execute_commandlist.h command.h arguments.h signal_handling.h
+execute_commandlist.o: execute_commandlist.c execute_commandlist.h command.h arguments.h signal_handling.h util.h
 	$(CC) $(CFLAGS) -c execute_commandlist.c
+
+pipeline.o: pipeline.c pipeline.h command.h util.h
+	$(CC) $(CFLAGS) -c pipeline.c
 
 .PHONY: clean safe
 clean :
