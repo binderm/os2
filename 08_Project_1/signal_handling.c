@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <wait.h>
-#include "sigint_handler.h"
+#include "signal_handling.h"
 
 void on_sigint(int, siginfo_t *, void *);
 

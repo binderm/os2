@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -pedantic -g
 MAIN = seash
-MAIN_OBJS = seash.o getcommand.o util.o list.o command.o cd.o sigint_handler.o execute_commandlist.o
+MAIN_OBJS = seash.o getcommand.o util.o list.o command.o cd.o signal_handling.o execute_commandlist.o
 
 .PHONY: all
 all : $(MAIN)
@@ -9,7 +9,7 @@ all : $(MAIN)
 $(MAIN) : $(MAIN_OBJS)
 	$(CC) $(CFLAGS) -o $(MAIN) $(MAIN_OBJS)
 
-$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h execute_commandlist.h
+$(MAIN).o : $(MAIN).c getcommand.h command.h util.h cd.h signal_handling.o execute_commandlist.h
 	$(CC) $(CFLAGS) -c $(MAIN).c
 
 getcommand.o : getcommand.c getcommand.h command.h util.h list.h
@@ -27,8 +27,8 @@ command.o : command.c command.h list.h util.h
 cd.o : cd.c cd.h command.h
 	$(CC) $(CFLAGS) -c cd.c
 
-sigint_handler.o: sigint_handler.c sigint_handler.h
-	$(CC) $(CFLAGS) -c sigint_handler.c
+signal_handling.o: signal_handling.c signal_handling.h
+	$(CC) $(CFLAGS) -c signal_handling.c
 
 execute_commandlist.o: execute_commandlist.c execute_commandlist.h command.h
 	$(CC) $(CFLAGS) -c execute_commandlist.c

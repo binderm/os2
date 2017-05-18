@@ -13,7 +13,7 @@
 #include "getcommand.h"
 #include "util.h"
 #include "cd.h"
-#include "sigint_handler.h"
+#include "signal_handling.h"
 #include "execute_commandlist.h"
 
 #define PROMPT "->"
