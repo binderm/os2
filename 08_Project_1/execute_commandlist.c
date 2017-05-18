@@ -110,7 +110,8 @@ int execute_command(command *com, int command_location, int *in, sigset_t *block
 		char **argv = get_argv(com);
 		execvp(argv[0], argv);
 		fprintf(stderr, "seash: Failed to change process image of child %d to %s: %s\n", getpid(), argv[0], strerror(errno));
-		exit(-1);
+		kill(getppid(), SIGINT);
+		raise(SIGINT);
 	} else if (child_pid < 0) {
 		perror("seash: Failed to fork");
 		return -1;
