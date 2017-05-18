@@ -1,6 +1,5 @@
 #include <errno.h>
 #include <string.h>
-
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -17,53 +16,11 @@
 #define IS_PIPELINE_START(command_location) ((command_location & PIPELINE_START) == PIPELINE_START)
 #define IS_PIPELINE_END(command_location) ((command_location & PIPELINE_END) == PIPELINE_END)
 
+int safe_close(int);
+void safe_kill(pid_t, int);
 int execute_command(command *, int, int *, sigset_t *);
 char **get_argv(command *);
 int setup_streams(command *, int, int *, int *, int *);
-
-/**
- * Close the given file descriptor.
- * If closing fails an error message is printed to stderr.
- * Standard file descriptors (stdin, stdout) are not closed.
- *
- * @param fd the file descriptor to be closed
- * @return 0 if file descriptor has been closed successfully or it was one of stdin or stdout, otherwise not 0
- */
-int safe_close(int fd) {
-	if (fd < 0 || fd == STDIN_FILENO || fd == STDOUT_FILENO) {
-		return 0;
-	}
-	if (close(fd)) {
-		fprintf(stderr, "seash: Failed to close file descriptor %d: %s\n", fd, strerror(errno));
-		return -1;
-	}
-	return 0;
-}
-
-void safe_kill(pid_t pid, int sig) {
-	if (kill(pid, sig)) {
-		fprintf(stderr, "seash: Failed to send signal %i to %d: %s\n",
-				sig, pid, strerror(errno));
-	}
-}
-
-void on_sigint(int sig, siginfo_t *siginfo, void *context) {
-	if (siginfo->si_pid != getpid()) {
-		kill(0, SIGINT);
-		while (wait(NULL) > 0);
-	}
-}
-
-int register_sigint_handler() {
-	struct sigaction act;
-	act.sa_sigaction = &on_sigint;
-	act.sa_flags = SA_SIGINFO;
-	if (sigaction(SIGINT, &act, NULL)) {
-		perror("seash: Failed to register signal handler for SIGINT");
-		return -1;
-	}
-	return 0;
-}
 
 void execute_commandlist(commandlist *clist) {
 	sigset_t blocked_signals;
@@ -93,6 +50,24 @@ void execute_commandlist(commandlist *clist) {
 
 	while (wait(NULL) > 0);
 	fflush(stdout);
+}
+
+int safe_close(int fd) {
+	if (fd < 0 || fd == STDIN_FILENO || fd == STDOUT_FILENO) {
+		return 0;
+	}
+	if (close(fd)) {
+		fprintf(stderr, "seash: Failed to close file descriptor %d: %s\n", fd, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+void safe_kill(pid_t pid, int sig) {
+	if (kill(pid, sig)) {
+		fprintf(stderr, "seash: Failed to send signal %i to %d: %s\n",
+				sig, pid, strerror(errno));
+	}
 }
 
 int redirect(int old_fd, int new_fd) {

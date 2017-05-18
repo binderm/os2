@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 #include "getcommand.h"
 #include "command.h"
 #include "util.h"
@@ -48,20 +49,21 @@ static char *_getline(FILE *stream)
    {
       len += BUFINC;
       line = (char *)safe_realloc(line, len + 1);
+      errno = 0;
       if (fgets(line + len - BUFINC, BUFINC + 1, stream) == NULL)
       {
-         if (feof(stream))
+	 free(line);
+	 int is_eof = feof(stream);
+	 if (is_eof || errno == EINTR) {
+            // Ctrl+C hit -> break to display prompt in new line
+	    printf("\n");
+	 }
+	 else
          {
-            free(line);
-            return NULL;
-         }
-         else
-         {
-            free(line);
-            fprintf(stderr, "error on input\n");
+            fprintf(stderr, "error on input: %s\n", strerror(errno));
             clearline(stream);
-            return NULL;
          }
+	 return NULL;
       }
    } while (line[strlen(line) - 1] != '\n');
 
