@@ -1,8 +1,6 @@
 #ifndef OFS_H
 #define OFS_H
 
-#include "ofs_result.h"
-
 /**
  * ioctl command for findin all a process's open() files.
  *

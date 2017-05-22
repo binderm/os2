@@ -1,7 +1,7 @@
 #ifndef OFS_RESULT_H
 #define OFS_RESULT_H
 
-struct osf_result {
+struct ofs_result {
 	pid_t pid;
 	uid_t uid;
 	uid_t owner;

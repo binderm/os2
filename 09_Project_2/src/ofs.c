@@ -2,13 +2,19 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/fs.h>
+#include "ofs_result.h"
 #include "ofs.h"
+
+#define MODULE_NAME "ofs"
+#define MAX_RESULTS 256
 
 MODULE_AUTHOR("Marcel Binder <binder4@hm.edu");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("...");
 
 static int major_num;
+static struct ofs_result results[MAX_RESULTS];
+static int search_performed = 1; 
 
 static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
@@ -42,13 +48,23 @@ static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd, unsigned long i
 			return ofs_find_open_files_with_name((char *) ioctl_arg);
 		default:
 			printk(KERN_WARNING "Unknown ioctl command %ud\n", ioctl_cmd);
-			return EINVAL;
+			return -EINVAL;
 	}
 	return 0;
 }
 
 static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t length, loff_t *offset) {
-	return 0;
+	// truncate request to a maximum of 256 results
+	ssize_t requested_result_count = length > MAX_RESULTS
+		? MAX_RESULTS
+		: length;
+
+	// require a prior call of ioctl
+	if (!search_performed) {
+		return -ESRCH;
+	}
+
+	return requested_result_count;
 }
 
 static int ofs_release(struct inode *inode, struct file *flip) {
@@ -56,6 +72,7 @@ static int ofs_release(struct inode *inode, struct file *flip) {
 }
 
 static struct file_operations fops = {
+	.owner = THIS_MODULE, // https://stackoverflow.com/a/6079839/1948906
 	.open = ofs_open,
 	.unlocked_ioctl = ofs_ioctl,
 	.read = ofs_read,
@@ -66,7 +83,7 @@ static int __init ofs_init(void) {
 	// major = 0 --> dynamically allocate major number should be returned
 	// name --> name of device in /proc/devices
 	// fops --> supported file operations
-	major_num = register_chrdev(0, "ofs", &fops);
+	major_num = register_chrdev(0, MODULE_NAME, &fops);
 	if (major_num < 0) {
 		printk(KERN_ERR "ofs: Failed to register as character device: error %d\n", major_num);
 		return -1;
@@ -80,7 +97,7 @@ static int __init ofs_init(void) {
 
 static void __exit ofs_exit(void) {
 	// return type of unregister_chrdev was changed to void as it always returned 0 (always succeeds)
-	unregister_chrdev(major_num, "ofs");
+	unregister_chrdev(major_num, MODULE_NAME);
 	printk(KERN_INFO "ofs: Unregistered character device with major number %d\n", major_num);
 }
 
