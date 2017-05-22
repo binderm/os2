@@ -10,29 +10,35 @@
 #include "execute_commandlist.h"
 #include "pipeline.h"
 
-void kill_pipeline();
+int get_command_count(commandlist *);
+void kill_pipeline(int *);
 int execute_command(command *, int, int *);
 
 void execute_commandlist(commandlist *clist) {
+	int command_count = get_command_count(clist);
+	int children_pids[command_count + 1];
+	memset(children_pids, 0, (command_count + 1) * sizeof(int));
+
 	if (block(SIGINT)) {
 		return;
 	}
 
 	int command_location = PIPELINE_START, in;
+	int i = 0;
 	for (command *com = clist->head; com != NULL; com = com->next_one) {
 		if (com == clist->tail) {
 			command_location |= PIPELINE_END;
 		}
-		if (execute_command(com, command_location, &in)) {
+		if ((children_pids[i++] = execute_command(com, command_location, &in)) < 0) {
 			safe_close(in);
-			kill_pipeline();
+			kill_pipeline(children_pids);
 			return;
 		}
 		command_location = PIPELINE_INTERMEDIATE;
 	}
 
 	if (unblock(SIGINT)) {
-		kill_pipeline();
+		kill_pipeline(children_pids);
 		exit(-1);
 	}
 
@@ -40,10 +46,21 @@ void execute_commandlist(commandlist *clist) {
 	fflush(stdout);
 }
 
-void kill_pipeline() {
-	if (kill(0, SIGINT)) {
-		perror("seash: Failed to kill pipeline");
+int get_command_count(commandlist *clist) {
+	int command_count = 0;
+	for (command *com = clist->head; com != NULL; com = com->next_one) {
+		command_count++;
 	}
+	return command_count;
+}
+
+void kill_pipeline(int *children_pids) {
+	for (int *child_pid = children_pids; *child_pid > 0; child_pid++) {
+		if (kill(*child_pid, SIGTERM)) {
+			fprintf(stderr, "Failed to kill child %d: %s\n", *child_pid, strerror(errno));
+		}
+	}
+	while (wait(NULL) > 0);
 }
 
 int execute_command(command *com, int command_location, int *in) {
@@ -82,6 +99,6 @@ int execute_command(command *com, int command_location, int *in) {
 	if (!IS_PIPELINE_END(command_location)) {
 		*in = next_in;
 	}
-	return 0;
+	return child_pid;
 }
 

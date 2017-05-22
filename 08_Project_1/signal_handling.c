@@ -19,7 +19,7 @@ int setup_signal_handling() {
 	// use the extended version to determine the sender of the signal
 	act.sa_flags = SA_SIGINFO;
 	if (sigaction(SIGINT, &act, NULL)) {
-		perror("seash: Failed to register signal handler for SIGINT");
+		perror("seash: [ERROR] Failed to register signal handler for SIGINT");
 		return -1;
 	}
 	return 0;
@@ -54,7 +54,7 @@ int reset_signal_handling() {
 struct sigaction act;
 		act.sa_handler = SIG_DFL;
 		if (sigaction(SIGINT, &act, NULL)) {
-			perror("seash: Failed to unregister signal handler for SIGINT in child process");
+			perror("seash: [ERROR] Failed to unregister signal handler for SIGINT in child process");
 			return -1;
 		}
 		return 0;
