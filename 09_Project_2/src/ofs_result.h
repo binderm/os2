@@ -1,3 +1,6 @@
+#ifndef OFS_RESULT_H
+#define OFS_RESULT_H
+
 struct osf_result {
 	pid_t pid;
 	uid_t uid;
@@ -7,3 +10,5 @@ struct osf_result {
 	unsigned int fsize;
 	unsigned long inode_no;
 };
+
+#endif
