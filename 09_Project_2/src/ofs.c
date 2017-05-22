@@ -8,6 +8,8 @@ MODULE_AUTHOR("Marcel Binder <binder4@hm.edu");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("...");
 
+static int major_num;
+
 static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
 }
@@ -64,9 +66,9 @@ static int __init ofs_init(void) {
 	// major = 0 --> dynamically allocate major number should be returned
 	// name --> name of device in /proc/devices
 	// fops --> supported file operations
-	int major_num = register_chrdev(0, "ofs", &fops);
+	major_num = register_chrdev(0, "ofs", &fops);
 	if (major_num < 0) {
-		printk(KERN_ERR "ofs: Failed to register as character device\n");
+		printk(KERN_ERR "ofs: Failed to register as character device: error %d\n", major_num);
 		return -1;
 	}
 
@@ -77,7 +79,9 @@ static int __init ofs_init(void) {
 }
 
 static void __exit ofs_exit(void) {
-	printk(KERN_ERR "ofs: Cleaned up");
+	// return type of unregister_chrdev was changed to void as it always returned 0 (always succeeds)
+	unregister_chrdev(major_num, "ofs");
+	printk(KERN_INFO "ofs: Unregistered character device with major number %d\n", major_num);
 }
 
 module_init(ofs_init);
