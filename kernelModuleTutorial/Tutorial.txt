@@ -1,0 +1,4 @@
+Kernel module = extend functionality of kernel
+can be loaded dynamically without reboot
+Example for module: Device driver
+
