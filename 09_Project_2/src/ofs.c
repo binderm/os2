@@ -8,7 +8,7 @@ MODULE_AUTHOR("Marcel Binder <binder4@hm.edu");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("...");
 
-static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t length, loff_t *offset) {
+static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
 }
 
@@ -45,7 +45,7 @@ static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd, unsigned long i
 	return 0;
 }
 
-static int ofs_open(struct inode *inode, struct file *flip) {
+static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t length, loff_t *offset) {
 	return 0;
 }
 
@@ -54,9 +54,9 @@ static int ofs_release(struct inode *inode, struct file *flip) {
 }
 
 static struct file_operations fops = {
-	.read = ofs_read,
-	.unlocked_ioctl = ofs_ioctl,
 	.open = ofs_open,
+	.unlocked_ioctl = ofs_ioctl,
+	.read = ofs_read,
 	.release = ofs_release
 };
 
