@@ -1,6 +1,8 @@
 #ifndef OFS_H
 #define OFS_H
 
+#include "ofs_result.h"
+
 /**
  * ioctl command for findin all a process's open() files.
  *
@@ -32,5 +34,10 @@
  *   filename
  */
 #define OFS_NAME 3
+
+/**
+ * Maximum number of results that can be read.
+ */
+#define OFS_MAX_RESULTS 256
 
 #endif

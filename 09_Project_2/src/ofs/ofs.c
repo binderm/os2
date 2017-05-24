@@ -2,37 +2,46 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/fs.h>
-#include "ofs_result.h"
 #include "ofs.h"
 
 #define MODULE_NAME "ofs"
-#define MAX_RESULTS 256
 
 MODULE_AUTHOR("Marcel Binder <binder4@hm.edu");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("...");
 
 static int major_num;
-static struct ofs_result results[MAX_RESULTS];
-static int search_performed = 1; 
+static int device_opened = 0;
+static struct ofs_result results[OFS_MAX_RESULTS];
+static int search_performed = 1;
 
 static int ofs_open(struct inode *inode, struct file *flip) {
+	if (device_opened) {
+		printk(KERN_WARNING "ofs: Driver already in use\n");
+		return -EBUSY;
+	}
+	device_opened = 1;
+	printk(KERN_INFO "ofs: Opened\n");
 	return 0;
 }
 
 static long ofs_find_files_opened_by_process(unsigned int pid) {
+	printk(KERN_INFO "ofs: Find open files of process %u\n", pid);
 	return 0;
 }
 
 static long ofs_find_files_opened_by_user(unsigned int uid) {
+	printk(KERN_INFO "ofs: Find all open files of user %u\n", uid);
 	return 0;
 }
 
 static long ofs_find_open_files_owned_by_user(unsigned int uid) {
+	printk(KERN_INFO "ofs: Find all open files owned by user %u\n", uid);
 	return 0;
 }
 
 static long ofs_find_open_files_with_name(char *filename) {
+	printk(KERN_INFO "ofs: Find all open files with name %s\n", filename);
 	return 0;
 }
 
@@ -47,7 +56,7 @@ static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd, unsigned long i
 		case OFS_NAME:
 			return ofs_find_open_files_with_name((char *) ioctl_arg);
 		default:
-			printk(KERN_WARNING "Unknown ioctl command %ud\n", ioctl_cmd);
+			printk(KERN_WARNING "Unknown ioctl command %u\n", ioctl_cmd);
 			return -EINVAL;
 	}
 	return 0;
@@ -55,9 +64,11 @@ static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd, unsigned long i
 
 static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t length, loff_t *offset) {
 	// truncate request to a maximum of 256 results
-	ssize_t requested_result_count = length > MAX_RESULTS
-		? MAX_RESULTS
+	ssize_t requested_result_count = length > OFS_MAX_RESULTS
+		? OFS_MAX_RESULTS
 		: length;
+	
+	printk(KERN_INFO "ofs: Read %ld results\n", requested_result_count);
 
 	// require a prior call of ioctl
 	if (!search_performed) {
@@ -68,6 +79,8 @@ static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t length, l
 }
 
 static int ofs_release(struct inode *inode, struct file *flip) {
+	device_opened = 0;
+	printk(KERN_INFO "ofs: Released\n");
 	return 0;
 }
 
@@ -91,7 +104,7 @@ static int __init ofs_init(void) {
 
 	printk(KERN_INFO "ofs: Registered as character device under major number %d.\n" \
 			"Create special file via\n" \
-			"mknod /dev/openFileSearchDev c %d\n", major_num, major_num);
+			"mknod /dev/openFileSearchDev c %d 0\n", major_num, major_num);
 	return 0;
 }
 
