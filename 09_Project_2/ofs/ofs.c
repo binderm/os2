@@ -2,8 +2,10 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/fs.h>
+#include <linux/pid.h>
+#include <linux/sched.h>
+#include <linux/fdtable.h>
 #include "ofs.h"
-
 #define MODULE_NAME "ofs"
 
 MODULE_AUTHOR("Marcel Binder <binder4@hm.edu");
@@ -12,7 +14,7 @@ MODULE_DESCRIPTION("...");
 
 static int major_num;
 static int device_opened = 0;
-static struct ofs_result results[OFS_MAX_RESULTS];
+//static struct ofs_result results[OFS_MAX_RESULTS];
 static int search_performed = 1;
 
 static int ofs_open(struct inode *inode, struct file *flip) {
@@ -26,7 +28,37 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 }
 
 static long ofs_find_files_opened_by_process(unsigned int pid) {
+	struct pid *p;
+	struct task_struct *task;
+	pid_t nr;
+	struct files_struct *files;
+	struct file *f;
+	struct path pa;
+	struct dentry *de;
+	struct qstr dn;
+	const unsigned char *name;
+	
 	printk(KERN_INFO "ofs: Find open files of process %u\n", pid);
+	// pid_t = int
+	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
+	nr = pid;
+	p = find_get_pid(nr);
+
+	task = get_pid_task(p, PIDTYPE_PID);
+	if (!task) {
+		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid\n");
+		return -EINVAL;
+	}
+	files = task->files;
+	printk(KERN_INFO "ofs: process %d has next_fd=%d\n", pid, files->next_fd);
+	
+	f = files->fd_array[0];
+	pa = f->f_path;
+	de = pa.dentry;
+	dn = de->d_name;
+	name = dn.name;
+	printk(KERN_INFO "ofs: open file %s\n", name);
+
 	return 0;
 }
 
