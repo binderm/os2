@@ -5,6 +5,8 @@
 #include <linux/pid.h>
 #include <linux/sched.h>
 #include <linux/fdtable.h>
+#include <linux/dcache.h>
+#include <linux/uidgid.h>
 #include "ofs.h"
 #define MODULE_NAME "ofs"
 
@@ -29,17 +31,24 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 
 static long ofs_find_files_opened_by_process(unsigned int pid) {
 	struct pid *p;
-	struct task_struct *task;
 	pid_t nr;
-	struct files_struct *files;
-	struct file *f;
+	struct task_struct *task;
+	struct fdtable *fdt;
+	unsigned int max_fds;
+	int open_fds_index;
+	unsigned long open_fds;
+	int bit;
+	int fd_index;
+	struct file *fd;
 	struct path pa;
-	struct dentry *de;
-	struct qstr dn;
-	const unsigned char *name;
-	
+	char name_buffer[64];
+	char *name;
+	struct inode *ino;
+	umode_t mode;
+	uid_t owner;
+
+
 	printk(KERN_INFO "ofs: Find open files of process %u\n", pid);
-	// pid_t = int
 	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
 	nr = pid;
 	p = find_get_pid(nr);
@@ -49,15 +58,31 @@ static long ofs_find_files_opened_by_process(unsigned int pid) {
 		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid\n");
 		return -EINVAL;
 	}
-	files = task->files;
-	printk(KERN_INFO "ofs: process %d has next_fd=%d\n", pid, files->next_fd);
 	
-	f = files->fd_array[0];
-	pa = f->f_path;
-	de = pa.dentry;
-	dn = de->d_name;
-	name = dn.name;
-	printk(KERN_INFO "ofs: open file %s\n", name);
+	fdt = task->files->fdt;
+	// maximum number of fd that can be hold in the current version of the fdtable
+	max_fds = fdt->max_fds;
+
+	for (open_fds_index = 0; open_fds_index < max_fds; open_fds_index++) {
+		open_fds = fdt->open_fds[open_fds_index];
+		if (!open_fds) {
+			break;
+		}
+		
+		for (bit = 0; bit < BITS_PER_LONG; bit++) {
+			if (open_fds & (1UL << bit)) {
+				fd_index = open_fds_index + bit;
+				fd = fdt->fd[fd_index];
+				pa = fd->f_path;
+				name = d_path(&pa, name_buffer, 64);
+				ino = fd->f_inode;
+				mode = ino->i_mode;
+				owner = ino->i_uid.val;
+
+				printk(KERN_INFO "ofs: %s\n     mode=%d\n     \nowner=%u\n", name, mode, owner);
+			}
+		}
+	}
 
 	return 0;
 }
