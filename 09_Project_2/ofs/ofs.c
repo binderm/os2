@@ -6,7 +6,6 @@
 #include <linux/sched.h>
 #include <linux/fdtable.h>
 #include <linux/dcache.h>
-#include <linux/uidgid.h>
 #include "ofs.h"
 #define MODULE_NAME "ofs"
 
@@ -29,38 +28,36 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
 }
 
-static long ofs_find_files_opened_by_process(unsigned int pid) {
+static long ofs_find_files_opened_by_process(pid_t pid) {
 	struct pid *p;
-	pid_t nr;
 	struct task_struct *task;
+	struct files_struct *files;
 	struct fdtable *fdt;
 	unsigned int fd_capacity;
 	unsigned int fds_length;
+	unsigned int result_index;
 	unsigned int fds_section_index;
 	unsigned long open_fds_section;
 	unsigned int fds_bit_index;
 	unsigned int open_fd_index;
-	/*unsigned long open_fds;
-	int bit;
-	int fd_index;
-	struct file *fd;
-	struct path pa;
-	char name_buffer[64];
-	char *name;
-	struct inode *ino;
-	umode_t mode;
-	uid_t owner;*/
-
+	struct file *open_file;
+	char result_name_buffer[OFS_RESULT_NAME_MAX_LENGTH];
+	char *result_name = result_name_buffer;
+	struct inode *inode;
+	umode_t result_permissions;
+	uid_t result_owner;
+	unsigned long result_inode_no;
+	
 	printk(KERN_INFO "ofs: Find open files of process %u\n", pid);
 	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
-	nr = pid;
-	p = find_get_pid(nr);
+	p = find_get_pid(pid);
 
 	task = get_pid_task(p, PIDTYPE_PID);
 	if (!task) {
 		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid %u. Might not exist.\n", pid);
 		return -EINVAL;
 	}
+	files = task->files;
 	
 	// Reading the fdtable must be protected with RCU read lock
 	rcu_read_lock();
@@ -68,7 +65,7 @@ static long ofs_find_files_opened_by_process(unsigned int pid) {
 	// reference to file_struct::fdt MUST be done via files_fdtable macro
 	// --> ensures lock-free dereference (see <kernel>/Documentation/filesystems/files.txt)
 	// (files_struct::fdt initially points to files_struct::fdtab but elsewhere after possible expansion of fdtable)
-	fdt = files_fdtable(task->files);
+	fdt = files_fdtable(files);
 	// now one CAN safely read fdt
 
 	// fdtable primarily is a wrapper around a array of file descriptors (fdtable::fd of type struct file *)
@@ -87,6 +84,7 @@ static long ofs_find_files_opened_by_process(unsigned int pid) {
 	// open_fds bits 6 (original file) used for writing (only opened for write operation)
 	// close_on_exec bit 3 set (.swp file) should be closed when changing process image but stdin, stdout, stderr should remain open of course
 	// TODO whats full_fds_bits for? -> always 0? length?
+	result_index = 0;
 	for (fds_section_index = 0; fds_section_index < fds_length; fds_section_index++) {
 		open_fds_section = fdt->open_fds[fds_section_index];
 		printk(KERN_DEBUG "ofs: open_fds[%u]=%lu\n", fds_section_index, open_fds_section);
@@ -94,31 +92,27 @@ static long ofs_find_files_opened_by_process(unsigned int pid) {
 		for (fds_bit_index = 0; fds_bit_index < BITS_PER_LONG; fds_bit_index++) {
 			if (open_fds_section & (1UL << fds_bit_index)) {
 				open_fd_index = fds_section_index + fds_bit_index;
-				printk(KERN_DEBUG "ofs: fd[%u] open\n", open_fd_index);
+				
+				// for getting a struct file from the fd array fcheck_files MUST be used holding the RCU read lock (see implementation: the last parameter is the index for the fd array)
+				open_file = fcheck_files(files, open_fd_index);
+				if (open_file) {
+					// TODO is atomic_long_inc_not_zero required on file->f_count?
+					result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);
+					// TODO check if error occurred (name too long)
+					inode = open_file->f_inode;
+					// umode_t = unsigned short, uid_t = unsigned int
+					result_permissions = inode->i_mode;
+					result_owner = (inode->i_uid).val; // TODO use uid_t from_kuid(user_namespace, kuid_t) instead
+					result_inode_no = inode->i_ino;
+					printk(KERN_DEBUG "ofs: Result#%u: name=%s\npermissions=%u, owner=%u, inode_no=%lu\n",
+						result_index, result_name, result_permissions, result_owner, result_inode_no);
+					result_index++;
+				} else {
+					printk(KERN_WARNING "ofs: Failed to query struct file with index %u\n", open_fd_index);
+				}
 			}
 		}
 	}
-
-	/*for (open_fds_index = 0; open_fds_index < max_fds; open_fds_index++) {
-		open_fds = fdt->open_fds[open_fds_index];
-		if (!open_fds) {
-			break;
-		}
-		
-		for (bit = 0; bit < BITS_PER_LONG; bit++) {
-			if (open_fds & (1UL << bit)) {
-				fd_index = open_fds_index + bit;
-				fd = fdt->fd[fd_index];
-				pa = fd->f_path;
-				name = d_path(&pa, name_buffer, 64);
-				ino = fd->f_inode;
-				mode = ino->i_mode;
-				owner = ino->i_uid.val;
-
-				printk(KERN_INFO "ofs: %s\n     mode=%d\n     \nowner=%u\n", name, mode, owner);
-			}
-		}
-	}*/
 
 	// Unlock read access to fdtable
 	rcu_read_unlock();
