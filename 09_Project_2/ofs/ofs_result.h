@@ -13,9 +13,9 @@ struct ofs_result {
 	pid_t pid; /* The pid of the process holding the opened file */
 	uid_t uid; /* TODO unclear? */
 	uid_t owner; /* The uid of the owner of the opened file */
-	unsigned short permissions; /* The permission/mode bitmask */
+	unsigned short permissions; /* The permission/mode bitmask (umode_t) */
 	char name[OFS_RESULT_NAME_MAX_LENGTH]; /* The name of the opened file */
-	unsigned int fsize; /* The size of the opened file in bytes */
+	unsigned int fsize; /* The size of the opened file in bytes (from loff_t) */
 	unsigned long inode_no; /* The inode number of the opened file */
 };
 
