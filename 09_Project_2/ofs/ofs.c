@@ -28,8 +28,9 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
 }
 
-static long ofs_find_files_opened_by_process(pid_t pid) {
+static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	struct pid *p;
+	pid_t pid;
 	struct task_struct *task;
 	struct files_struct *files;
 	struct fdtable *fdt;
@@ -49,15 +50,16 @@ static long ofs_find_files_opened_by_process(pid_t pid) {
 	loff_t result_fsize; // loff_t = long long int (TODO convert to unsigned int for struct ofs_result)
 	unsigned long result_inode_no;
 	
-	printk(KERN_INFO "ofs: Find open files of process %u\n", pid);
+	printk(KERN_INFO "ofs: Find open files of process %u\n", requsted_pid);
 	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
-	p = find_get_pid(pid);
+	p = find_get_pid(requested_pid);
 
 	task = get_pid_task(p, PIDTYPE_PID);
 	if (!task) {
 		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid %u. Might not exist.\n", pid);
 		return -EINVAL;
 	}
+	pid = task->pid;
 	files = task->files;
 	
 	// Reading the fdtable must be protected with RCU read lock
@@ -139,7 +141,7 @@ static long ofs_find_open_files_with_name(char *filename) {
 static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd, unsigned long ioctl_arg) {
 	switch (ioctl_cmd) {
 		case OFS_PID:
-			return ofs_find_files_opened_by_process(*(unsigned int*) ioctl_arg);
+			return ofs_find_files_opened_by_process(*(pid_t *) ioctl_arg);
 		case OFS_UID:
 			return ofs_find_files_opened_by_user(*(unsigned int *) ioctl_arg);
 		case OFS_OWNER:
