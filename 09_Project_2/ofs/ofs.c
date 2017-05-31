@@ -44,8 +44,9 @@ static long ofs_find_files_opened_by_process(pid_t pid) {
 	char result_name_buffer[OFS_RESULT_NAME_MAX_LENGTH];
 	char *result_name = result_name_buffer;
 	struct inode *inode;
-	umode_t result_permissions;
-	uid_t result_owner;
+	umode_t result_permissions; // umode_t = unsigned int
+	uid_t result_owner; // uid_t = unsigned short
+	loff_t result_fsize; // loff_t = long long int (TODO convert to unsigned int for struct ofs_result)
 	unsigned long result_inode_no;
 	
 	printk(KERN_INFO "ofs: Find open files of process %u\n", pid);
@@ -100,12 +101,12 @@ static long ofs_find_files_opened_by_process(pid_t pid) {
 					result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);
 					// TODO check if error occurred (name too long)
 					inode = open_file->f_inode;
-					// umode_t = unsigned short, uid_t = unsigned int
 					result_permissions = inode->i_mode;
 					result_owner = (inode->i_uid).val; // TODO use uid_t from_kuid(user_namespace, kuid_t) instead
+					result_fsize = inode->i_size;
 					result_inode_no = inode->i_ino;
-					printk(KERN_DEBUG "ofs: Result#%u: name=%s\npermissions=%u, owner=%u, inode_no=%lu\n",
-						result_index, result_name, result_permissions, result_owner, result_inode_no);
+					printk(KERN_DEBUG "ofs: Result#%u: name=%s\npermissions=%u, owner=%u, fsize=%lld, inode_no=%lu\n",
+						result_index, result_name, result_permissions, result_owner, result_fsize, result_inode_no);
 					result_index++;
 				} else {
 					printk(KERN_WARNING "ofs: Failed to query struct file with index %u\n", open_fd_index);
