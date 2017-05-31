@@ -30,15 +30,13 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
 }
 
-static long ofs_find_files_opened_by_process(pid_t requested_pid) {
-	struct pid *p;
-	pid_t pid;
-	struct task_struct *task;
-	struct files_struct *files;
+static void open_files_of_task(struct task_struct *task, struct ofs_result *results, unsigned int *result_index, unsigned int results_capacity) {
+	pid_t pid = task->pid;
+	// TODO locking required for struct task_struct?
+	struct files_struct *files = task->files;
 	struct fdtable *fdt;
 	unsigned int fd_capacity;
 	unsigned int fds_length;
-	unsigned int result_index;
 	int limit_exerceeded;
 	struct ofs_result *result;
 	unsigned int fds_section_index;
@@ -49,18 +47,6 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	char result_name_buffer[OFS_RESULT_NAME_MAX_LENGTH];
 	char *result_name = result_name_buffer;
 	struct inode *inode;
-	
-	printk(KERN_INFO "ofs: Find open files of process %u\n", requested_pid);
-	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
-	p = find_get_pid(requested_pid);
-
-	task = get_pid_task(p, PIDTYPE_PID);
-	if (!task) {
-		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid %u. Might not exist.\n", requested_pid);
-		return -EINVAL;
-	}
-	pid = task->pid;
-	files = task->files;
 	
 	// Reading the fdtable must be protected with RCU read lock
 	rcu_read_lock();
@@ -87,7 +73,6 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	// open_fds bits 6 (original file) used for writing (only opened for write operation)
 	// close_on_exec bit 3 set (.swp file) should be closed when changing process image but stdin, stdout, stderr should remain open of course
 	// TODO whats full_fds_bits for? -> always 0? length?
-	result_index = 0;
 	limit_exerceeded = 0;
 	for (fds_section_index = 0; !limit_exerceeded && fds_section_index < fds_length; fds_section_index++) {
 		open_fds_section = fdt->open_fds[fds_section_index];
@@ -95,18 +80,20 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 		
 		for (fds_bit_index = 0; !limit_exerceeded && fds_bit_index < BITS_PER_LONG; fds_bit_index++) {
 			if (open_fds_section & (1UL << fds_bit_index)) {
-				if (result_index > OFS_MAX_RESULTS) {
-					printk(KERN_WARNING "Found more than %u results\n", OFS_MAX_RESULTS);
+				if (*result_index > results_capacity) {
+					printk(KERN_WARNING "Found more than %u results\n", results_capacity);
 					limit_exerceeded = 1;
 					break; // TODO remove break
 				}
-				result = &results_[result_index];
+				result = &results[*result_index];
 
 				open_fd_index = fds_section_index + fds_bit_index;
 				
 				// for getting a struct file from the fd array fcheck_files MUST be used holding the RCU read lock (see implementation: the last parameter is the index for the fd array)
 				open_file = fcheck_files(files, open_fd_index);
 				if (open_file) {
+					result->pid = pid;
+
 					// TODO is atomic_long_inc_not_zero required on file->f_count?
 					result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);
 					// TODO consider an alternative for memcpy and check for errors (name too long, memcpy failure)
@@ -118,8 +105,8 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 					result->fsize = inode->i_size;
 					result->inode_no = inode->i_ino;
 					printk(KERN_DEBUG "ofs: Result#%u: name=%s\npermissions=%u, owner=%u, fsize=%u, inode_no=%lu\n",
-						result_index, result->name, result->permissions, result->owner, result->fsize, result->inode_no);
-					result_index++;
+						*result_index, result->name, result->permissions, result->owner, result->fsize, result->inode_no);
+					(*result_index)++;
 				} else {
 					printk(KERN_WARNING "ofs: Failed to query struct file with index %u\n", open_fd_index);
 				}
@@ -129,7 +116,34 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 
 	// Unlock read access to fdtable
 	rcu_read_unlock();
+}
 
+static int open_files_of_pid(pid_t requested_pid, struct ofs_result *results, unsigned int *result_index, unsigned int results_capacity) {
+	struct pid *p;
+	struct task_struct *task;
+		
+	printk(KERN_INFO "ofs: Find open files of process %u\n", requested_pid);
+	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
+	p = find_get_pid(requested_pid);
+
+	task = get_pid_task(p, PIDTYPE_PID);
+	if (!task) {
+		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid %u. Might not exist.\n", requested_pid);
+		return -EINVAL;
+	}
+	
+	open_files_of_task(task, results, result_index, OFS_MAX_RESULTS);
+	return 0;
+}
+
+static long ofs_find_files_opened_by_process(pid_t requested_pid) {
+	int result_index = 0;
+	
+	int result = 0;
+	if (open_files_of_pid(requested_pid, results_, &result_index, OFS_MAX_RESULTS)) {
+		return result;
+	}
+		
 	search_performed_ = 1;
 	result_count_ = result_index;
 	return 0;
