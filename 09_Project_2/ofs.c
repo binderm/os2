@@ -30,10 +30,8 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
 }
 
-static long ofs_find_files_opened_by_process(pid_t requested_pid) {
-	struct pid *p;
+static long ofs_find_open_files_of_task(struct task_struct *task) {
 	pid_t pid;
-	struct task_struct *task;
 	struct files_struct *files;
 	struct fdtable *fdt;
 	unsigned int fd_capacity;
@@ -49,16 +47,7 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	char result_name_buffer[OFS_RESULT_NAME_MAX_LENGTH];
 	char *result_name = result_name_buffer;
 	struct inode *inode;
-	
-	printk(KERN_INFO "ofs: Find open files of process %u\n", requested_pid);
-	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
-	p = find_get_pid(requested_pid);
 
-	task = get_pid_task(p, PIDTYPE_PID);
-	if (!task) {
-		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid %u. Might not exist.\n", requested_pid);
-		return -EINVAL;
-	}
 	pid = task->pid;
 	files = task->files;
 	
@@ -129,9 +118,25 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 
 	// Unlock read access to fdtable
 	rcu_read_unlock();
+	return result_index;
+}
 
+static long ofs_find_files_opened_by_process(pid_t requested_pid) {
+	struct pid *p;
+	struct task_struct *task;
+		
+	printk(KERN_INFO "ofs: Find open files of process %u\n", requested_pid);
+	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
+	p = find_get_pid(requested_pid);
+
+	task = get_pid_task(p, PIDTYPE_PID);
+	if (!task) {
+		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid %u. Might not exist.\n", requested_pid);
+		return -EINVAL;
+	}
+
+	result_count_ = ofs_find_open_files_of_task(task);
 	search_performed_ = 1;
-	result_count_ = result_index;
 	return 0;
 }
 
