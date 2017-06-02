@@ -11,8 +11,8 @@
 #include "../ofs.h"
 
 int main(int argc, char **argv) {
-	if (argc < 2) {
-		printf("Usage: ofs-demo <pid>\n");
+	if (argc < 3) {
+		printf("Usage: demo <ioctl_cmd> <ioctl_arg>\n");
 		return -1;
 	}
 
@@ -23,16 +23,44 @@ int main(int argc, char **argv) {
 	}
 	printf("[  OK  ] open\n");
 
-	int pid = atoi(argv[1]);
-	if (ioctl(fd, OFS_PID, &pid)) {
-		fprintf(stderr, "[FAILED] ioctl OFS_PID: %s\n", strerror(errno));
+	char *ioctl_cmd_str = argv[1];
+	int ioctl_cmd;
+	unsigned int uint_arg;
+	char *str_arg;
+	void *ioctl_arg;
+	if (strcmp("OFS_PID", ioctl_cmd_str) == 0) {
+		ioctl_cmd = OFS_PID;
+		uint_arg = atoi(argv[2]);
+		ioctl_arg = &uint_arg;
+	} else if (strcmp("OFS_UID", ioctl_cmd_str) == 0) {
+		ioctl_cmd = OFS_UID;
+		uint_arg = atoi(argv[2]);
+		ioctl_arg = &uint_arg;
+	} else if (strcmp("OFS_OWNER", ioctl_cmd_str) == 0) {
+		ioctl_cmd = OFS_OWNER;
+		uint_arg = atoi(argv[2]);
+		ioctl_arg = &uint_arg;
+	} else if (strcmp("OFS_NAME", ioctl_cmd_str) == 0) {
+		ioctl_cmd = OFS_NAME;
+		str_arg = argv[2];
+		ioctl_arg = str_arg;
 	} else {
-		printf("[  OK  ] ioctl OFS_PID\n");
+		fprintf(stderr, "Unknown ioctl command %s\n", ioctl_cmd_str);
+	}
+
+	int search_failed;
+	if ((search_failed = ioctl(fd, ioctl_cmd, ioctl_arg))) {
+		fprintf(stderr, "[FAILED] ioctl %s: %s\n", ioctl_cmd_str, strerror(errno));
+	} else {
+		printf("[  OK  ] ioctl %s\n", ioctl_cmd_str);
 	}
 
 	struct ofs_result results[OFS_MAX_RESULTS];
-	int result_count = read(fd, &results, OFS_MAX_RESULTS);
-	if (result_count < 0) {
+	int result_count;
+	if (search_failed) {
+		printf("[ SKIP ] read\n");
+	}
+	else if ((result_count = read(fd, &results, OFS_MAX_RESULTS) < 0)) {
 		fprintf(stderr, "[FAILED] read: %s\n", strerror(errno));
 	} else {
 		printf("[  OK  ] read: %d results\n", result_count);
