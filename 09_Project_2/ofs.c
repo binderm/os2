@@ -7,6 +7,7 @@
 #include <linux/fdtable.h>
 #include <linux/dcache.h>
 #include <linux/uaccess.h>
+#include <linux/list.h>
 #include "ofs.h"
 #define MODULE_NAME "ofs"
 
@@ -140,8 +141,27 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	return 0;
 }
 
+static long ofs_find_open_files_of_tasks(struct task_struct *task) {
+	struct list_head *cursor;
+	struct task_struct *child;
+	
+	printk(KERN_DEBUG "ofs: open files for pid %d\n", task->pid);
+	//ofs_find_open_files_of_task(task);
+	list_for_each(cursor, &(task->children)) {
+		child = list_entry(cursor, struct task_struct, sibling);
+		ofs_find_open_files_of_tasks(child);
+	}
+	return 0;
+}
+
 static long ofs_find_files_opened_by_user(unsigned int uid) {
 	printk(KERN_INFO "ofs: Find all open files of user %u\n", uid);
+
+	// init_task is actually the process with pid 0 (the scheduler/swapper process)
+	// it is scheduled when a processor is idle... and its the father of all tasks
+	// --> use it as entry point for traversing all tasks
+	result_count_ = ofs_find_open_files_of_tasks(&init_task);
+	search_performed_ = 1;
 	return 0;
 }
 
