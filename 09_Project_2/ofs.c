@@ -31,13 +31,12 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
 }
 
-static long ofs_find_open_files_of_task(struct task_struct *task) {
+static void ofs_find_open_files_of_task(struct task_struct *task) {
 	pid_t pid;
 	struct files_struct *files;
 	struct fdtable *fdt;
 	unsigned int fd_capacity;
 	unsigned int fds_length;
-	unsigned int result_index;
 	int limit_exerceeded;
 	struct ofs_result *result;
 	unsigned int fds_section_index;
@@ -77,7 +76,6 @@ static long ofs_find_open_files_of_task(struct task_struct *task) {
 	// open_fds bits 6 (original file) used for writing (only opened for write operation)
 	// close_on_exec bit 3 set (.swp file) should be closed when changing process image but stdin, stdout, stderr should remain open of course
 	// TODO whats full_fds_bits for? -> always 0? length?
-	result_index = 0;
 	limit_exerceeded = 0;
 	for (fds_section_index = 0; !limit_exerceeded && fds_section_index < fds_length; fds_section_index++) {
 		open_fds_section = fdt->open_fds[fds_section_index];
@@ -85,12 +83,12 @@ static long ofs_find_open_files_of_task(struct task_struct *task) {
 		
 		for (fds_bit_index = 0; !limit_exerceeded && fds_bit_index < BITS_PER_LONG; fds_bit_index++) {
 			if (open_fds_section & (1UL << fds_bit_index)) {
-				if (result_index > OFS_MAX_RESULTS) {
+				if (result_count_ > OFS_MAX_RESULTS) {
 					printk(KERN_WARNING "Found more than %u results\n", OFS_MAX_RESULTS);
 					limit_exerceeded = 1;
 					break; // TODO remove break
 				}
-				result = &results_[result_index];
+				result = &results_[result_count_];
 
 				open_fd_index = fds_section_index + fds_bit_index;
 				
@@ -108,8 +106,8 @@ static long ofs_find_open_files_of_task(struct task_struct *task) {
 					result->fsize = inode->i_size;
 					result->inode_no = inode->i_ino;
 					printk(KERN_DEBUG "ofs: Result#%u: name=%s\npermissions=%u, owner=%u, fsize=%u, inode_no=%lu\n",
-						result_index, result->name, result->permissions, result->owner, result->fsize, result->inode_no);
-					result_index++;
+						result_count_, result->name, result->permissions, result->owner, result->fsize, result->inode_no);
+					result_count_++;
 				} else {
 					printk(KERN_WARNING "ofs: Failed to query struct file with index %u\n", open_fd_index);
 				}
@@ -119,7 +117,6 @@ static long ofs_find_open_files_of_task(struct task_struct *task) {
 
 	// Unlock read access to fdtable
 	rcu_read_unlock();
-	return result_index;
 }
 
 static long ofs_find_files_opened_by_process(pid_t requested_pid) {
@@ -136,7 +133,8 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 		return -EINVAL;
 	}
 
-	result_count_ = ofs_find_open_files_of_task(task);
+	result_count_ = 0;
+	ofs_find_open_files_of_task(task);
 	search_performed_ = 1;
 	return 0;
 }
