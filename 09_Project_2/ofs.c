@@ -120,14 +120,18 @@ static void ofs_find_open_files_of_task(struct task_struct *task) {
 }
 
 static long ofs_find_files_opened_by_process(pid_t requested_pid) {
-	struct pid *p;
+	struct pid *pid;
 	struct task_struct *task;
 		
 	printk(KERN_INFO "ofs: Find open files of process %u\n", requested_pid);
 	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
-	p = find_get_pid(requested_pid);
+	pid = find_vpid(requested_pid);
+	if (!pid) {
+		printk(KERN_WARNING "ofs: find_vpid failed\n");
+		return -EINVAL;
+	}
 
-	task = get_pid_task(p, PIDTYPE_PID);
+	task = pid_task(pid, PIDTYPE_PID);
 	if (!task) {
 		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid %u. Might not exist.\n", requested_pid);
 		return -EINVAL;
