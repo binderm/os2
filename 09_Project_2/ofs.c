@@ -33,7 +33,28 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 	return 0;
 }
 
-static void ofs_find_open_files_of_task(struct task_struct *task) {
+typedef int (*ofs_result_filter)(struct ofs_result *, void *);
+
+int ofs_no_filter(struct ofs_result *result, void *filter_arg) {
+	return 1;
+}
+
+int ofs_filter_by_uid(struct ofs_result *result, void *filter_arg) {
+	unsigned int uid = *(unsigned int *) filter_arg;
+	return result->uid == uid;
+}
+
+int ofs_filter_by_owner(struct ofs_result *result, void *filter_arg) {
+	unsigned int owner = *(unsigned int *) filter_arg;
+	return result->owner == owner;
+}
+
+int ofs_filter_by_name(struct ofs_result *result, void *filter_arg) {
+	char * name = (char *) filter_arg;
+	return strncmp(result->name, name, OFS_RESULT_NAME_MAX_LENGTH) == 0;
+}
+
+static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_filter filter, void *filter_arg) {
 	pid_t pid;
 	struct files_struct *files;
 	struct fdtable *fdt;
@@ -112,9 +133,11 @@ static void ofs_find_open_files_of_task(struct task_struct *task) {
 					result->owner = (inode->i_uid).val; // TODO use uid_t from_kuid(user_namespace, kuid_t) instead
 					result->fsize = inode->i_size;
 					result->inode_no = inode->i_ino;
-					printk(KERN_DEBUG "ofs: Result#%u: name=%s\npermissions=%u, owner=%u, fsize=%u, inode_no=%lu\n",
-						result_count_, result->name, result->permissions, result->owner, result->fsize, result->inode_no);
-					result_count_++;
+					if (filter(result, filter_arg)) {
+						printk(KERN_DEBUG "ofs: Result#%u: name=%s\npermissions=%u, owner=%u, fsize=%u, inode_no=%lu\n",
+							result_count_, result->name, result->permissions, result->owner, result->fsize, result->inode_no);
+						result_count_++;
+					}
 				} else {
 					printk(KERN_WARNING "ofs: Failed to query struct file with index %u\n", open_fd_index);
 				}
@@ -145,20 +168,20 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	}
 
 	result_count_ = 0;
-	ofs_find_open_files_of_task(task);
+	ofs_find_open_files_of_task(task, &ofs_no_filter, NULL);
 	search_performed_ = 1;
 	return 0;
 }
 
-static void ofs_find_open_files_of_tasks(struct task_struct *task) {
+static void ofs_find_open_files_of_tasks(struct task_struct *task, ofs_result_filter filter, void *filter_arg) {
 	struct list_head *cursor;
 	struct task_struct *child;
 	
 	printk(KERN_DEBUG "ofs: open files for pid %d\n", task->pid);
-	ofs_find_open_files_of_task(task);
+	ofs_find_open_files_of_task(task, filter, filter_arg);
 	list_for_each(cursor, &(task->children)) {
 		child = list_entry(cursor, struct task_struct, sibling);
-		ofs_find_open_files_of_tasks(child);
+		ofs_find_open_files_of_tasks(child, filter, filter_arg);
 	}
 }
 
@@ -169,18 +192,26 @@ static long ofs_find_files_opened_by_user(unsigned int uid) {
 	// it is scheduled when a processor is idle... and its the father of all tasks
 	// --> use it as entry point for traversing all tasks
 	result_count_ = 0;
-	ofs_find_open_files_of_tasks(&init_task);
+	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_uid, (void *) &uid);
 	search_performed_ = 1;
 	return 0;
 }
 
-static long ofs_find_open_files_owned_by_user(unsigned int uid) {
-	printk(KERN_INFO "ofs: Find all open files owned by user %u\n", uid);
+static long ofs_find_open_files_owned_by_user(unsigned int owner) {
+	printk(KERN_INFO "ofs: Find all open files owned by user %u\n", owner);
+	
+	result_count_ = 0;
+	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_owner, (void *) &owner);
+	search_performed_ = 1;
 	return 0;
 }
 
 static long ofs_find_open_files_with_name(char *filename) {
 	printk(KERN_INFO "ofs: Find all open files with name %s\n", filename);
+	
+	result_count_ = 0;
+	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_name, (void *) filename);
+	search_performed_ = 1;
 	return 0;
 }
 

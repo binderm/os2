@@ -25,7 +25,7 @@
  * ioctl argument: unsigned int
  *   id of user
  */
-#define OFS_OWNER 2
+#define OFS_OWNER 3 // DO NOT USE 2 -> does not work for some reason
 
 /**
  * ioctl command for finding all files with a given name.
@@ -33,7 +33,7 @@
  * ioctl argument: char* up to 64 bytes (null-terminated)
  *   filename
  */
-#define OFS_NAME 3
+#define OFS_NAME 4
 
 /**
  * Maximum number of results that can be read.
