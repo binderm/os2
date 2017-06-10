@@ -56,6 +56,7 @@ int ofs_filter_by_name(struct ofs_result *result, void *filter_arg) {
 
 static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_filter filter, void *filter_arg) {
 	pid_t pid;
+	uid_t uid;
 	struct files_struct *files;
 	struct fdtable *fdt;
 	unsigned int fd_capacity;
@@ -72,6 +73,7 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 	struct inode *inode;
 
 	pid = task->pid;
+	uid = task->cred->uid.val;
 	files = task->files;
 	
 	// Reading the fdtable must be protected with RCU read lock
@@ -131,6 +133,7 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 					inode = open_file->f_inode;
 					printk(KERN_DEBUG "ofs: inode=%d\n", inode != NULL);
 					result->permissions = inode->i_mode;
+					result->uid = uid;
 					result->owner = (inode->i_uid).val; // TODO use uid_t from_kuid(user_namespace, kuid_t) instead
 					result->fsize = inode->i_size;
 					result->inode_no = inode->i_ino;
