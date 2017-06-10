@@ -96,8 +96,6 @@ static void ofs_find_open_files_of_task(struct task_struct *task) {
 
 				// for getting a struct file from the fd array fcheck_files MUST be used holding the RCU read lock (see implementation: the last parameter is the index for the fd array)
 				open_file = fcheck_files(files, open_fd_index);
-				printk(KERN_DEBUG "ofs: fds_section_index=%d, fds_bit_index=%d, open_fd_index=%d, open_file=%d",
-					fds_section_index, fds_bit_index, open_fd_index, open_file != NULL);
 				if (open_file) {
 					// TODO is atomic_long_inc_not_zero required on file->f_count?
 					result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);	
@@ -106,7 +104,7 @@ static void ofs_find_open_files_of_task(struct task_struct *task) {
 						printk(KERN_WARNING "ofs: Failed to get name for open file. Error code: %ld\n", PTR_ERR(result_name));
 						continue;
 					}
-					memcpy(&(result->name), result_name, OFS_RESULT_NAME_MAX_LENGTH);
+					strncpy(result->name, result_name, OFS_RESULT_NAME_MAX_LENGTH);
 
 					inode = open_file->f_inode;
 					printk(KERN_DEBUG "ofs: inode=%d\n", inode != NULL);
