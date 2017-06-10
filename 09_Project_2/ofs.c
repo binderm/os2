@@ -8,6 +8,8 @@
 #include <linux/dcache.h>
 #include <linux/uaccess.h>
 #include <linux/list.h>
+#include <linux/err.h>
+#include <linux/init_task.h>
 #include "ofs.h"
 #define MODULE_NAME "ofs"
 
@@ -91,16 +93,23 @@ static void ofs_find_open_files_of_task(struct task_struct *task) {
 				result = &results_[result_count_];
 
 				open_fd_index = fds_section_index + fds_bit_index;
-				
+
 				// for getting a struct file from the fd array fcheck_files MUST be used holding the RCU read lock (see implementation: the last parameter is the index for the fd array)
 				open_file = fcheck_files(files, open_fd_index);
+				printk(KERN_DEBUG "ofs: fds_section_index=%d, fds_bit_index=%d, open_fd_index=%d, open_file=%d",
+					fds_section_index, fds_bit_index, open_fd_index, open_file != NULL);
 				if (open_file) {
 					// TODO is atomic_long_inc_not_zero required on file->f_count?
-					result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);
-					// TODO consider an alternative for memcpy and check for errors (name too long, memcpy failure)
+					result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);	
+
+					if (IS_ERR(result_name)) {
+						printk(KERN_WARNING "ofs: Failed to get name for open file. Error code: %ld\n", PTR_ERR(result_name));
+						continue;
+					}
 					memcpy(&(result->name), result_name, OFS_RESULT_NAME_MAX_LENGTH);
 
 					inode = open_file->f_inode;
+					printk(KERN_DEBUG "ofs: inode=%d\n", inode != NULL);
 					result->permissions = inode->i_mode;
 					result->owner = (inode->i_uid).val; // TODO use uid_t from_kuid(user_namespace, kuid_t) instead
 					result->fsize = inode->i_size;
@@ -143,17 +152,16 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	return 0;
 }
 
-static long ofs_find_open_files_of_tasks(struct task_struct *task) {
+static void ofs_find_open_files_of_tasks(struct task_struct *task) {
 	struct list_head *cursor;
 	struct task_struct *child;
 	
 	printk(KERN_DEBUG "ofs: open files for pid %d\n", task->pid);
-	//ofs_find_open_files_of_task(task);
+	ofs_find_open_files_of_task(task);
 	list_for_each(cursor, &(task->children)) {
 		child = list_entry(cursor, struct task_struct, sibling);
 		ofs_find_open_files_of_tasks(child);
 	}
-	return 0;
 }
 
 static long ofs_find_files_opened_by_user(unsigned int uid) {
@@ -162,7 +170,8 @@ static long ofs_find_files_opened_by_user(unsigned int uid) {
 	// init_task is actually the process with pid 0 (the scheduler/swapper process)
 	// it is scheduled when a processor is idle... and its the father of all tasks
 	// --> use it as entry point for traversing all tasks
-	result_count_ = ofs_find_open_files_of_tasks(&init_task);
+	result_count_ = 0;
+	ofs_find_open_files_of_tasks(&init_task);
 	search_performed_ = 1;
 	return 0;
 }
