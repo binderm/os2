@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
 	if (search_failed) {
 		printf("[ SKIP ] read\n");
 	}
-	else if ((result_count = read(fd, &results, OFS_MAX_RESULTS) < 0)) {
+	else if ((result_count = read(fd, results, OFS_MAX_RESULTS)) < 0) {
 		fprintf(stderr, "[FAILED] read: %s\n", strerror(errno));
 	} else {
 		printf("[  OK  ] read: %d results\n", result_count);
