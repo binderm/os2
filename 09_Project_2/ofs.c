@@ -118,6 +118,7 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 				// for getting a struct file from the fd array fcheck_files MUST be used holding the RCU read lock (see implementation: the last parameter is the index for the fd array)
 				open_file = fcheck_files(files, open_fd_index);
 				if (open_file) {
+					result->pid = pid;
 					// TODO is atomic_long_inc_not_zero required on file->f_count?
 					result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);	
 

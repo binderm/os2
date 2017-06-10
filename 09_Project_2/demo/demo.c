@@ -22,6 +22,7 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 	printf("[  OK  ] open\n");
+	printf("[ INFO ] current pid: %d\n", getpid());
 
 	char *ioctl_cmd_str = argv[1];
 	int ioctl_cmd;
