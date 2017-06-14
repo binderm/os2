@@ -10,8 +10,8 @@
 #include <linux/list.h>
 #include <linux/err.h>
 #include <linux/init_task.h>
-#include "ofs.h"
-#define MODULE_NAME "ofs"
+#include "openFileSearch.h"
+#define MODULE_NAME "openFileSearch"
 
 MODULE_AUTHOR("Marcel Binder <binder4@hm.edu");
 MODULE_LICENSE("GPL");
@@ -258,7 +258,6 @@ static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t length, l
 	// truncate request to a maximum of 256 results
 	// TODO use offset
 	result_count = ofs_min(length, ofs_min(result_count_, OFS_MAX_RESULTS));
-	printk(KERN_INFO "ofs: Requested %ld results: %u available\n", length, result_count);
 
 	copy_to_user(buffer, results_, result_count * sizeof(struct ofs_result));
 

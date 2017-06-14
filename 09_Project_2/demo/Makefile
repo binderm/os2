@@ -8,7 +8,7 @@ all: $(EXE)
 $(EXE): $(OBJS)
 	gcc $(GCCFLAGS) $(OBJS) -o $(EXE)
 
-demo.o: demo.c ../ofs.h
+demo.o: demo.c ../openFileSearch.h
 	gcc $(GCCFLAGS) -c demo.c
 
 clean:

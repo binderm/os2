@@ -1,4 +1,4 @@
-obj-m += ofs.o
+obj-m += openFileSearch.o
 
 .PHONY: all clean
 all:

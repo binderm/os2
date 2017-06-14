@@ -8,7 +8,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../ofs.h"
+#include "../openFileSearch.h"
 
 int main(int argc, char **argv) {
 	if (argc < 3) {
