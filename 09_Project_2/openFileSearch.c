@@ -90,10 +90,10 @@ ofs_result_filter filter, void *filter_arg) {
 		return;
 	}
 	// TODO is atomic_long_inc_not_zero required on file->f_count?
-	result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);	
+	result_name = d_path(&(open_file->f_path), result_name_buffer,
+	OFS_RESULT_NAME_MAX_LENGTH);	
 	if (IS_ERR(result_name)) {
-		printk(KERN_WARNING "openFileSearch: Failed to get name for open file. Error code: %ld\n", PTR_ERR(result_name));
-		return; // TODO
+		result_name = "(too long)";
 	}
 	strncpy(result->name, result_name, OFS_RESULT_NAME_MAX_LENGTH);
 	kfree(result_name_buffer);
