@@ -1,5 +1,5 @@
-#ifndef OFS_H
-#define OFS_H
+#ifndef OPEN_FILE_SEARCH_H
+#define OPEN_FILE_SEARCH_H
 
 #include "ofs_result.h"
 
