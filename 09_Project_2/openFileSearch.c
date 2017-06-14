@@ -92,8 +92,14 @@ ofs_result_filter filter, void *filter_arg) {
 	// TODO is atomic_long_inc_not_zero required on file->f_count?
 	result_name = d_path(&(open_file->f_path), result_name_buffer,
 	OFS_RESULT_NAME_MAX_LENGTH);	
-	if (IS_ERR(result_name)) {
+	if (IS_ERR(result_name) && PTR_ERR(result_name) == -ENAMETOOLONG) {
 		result_name = "(too long)";
+		printk(KERN_INFO "openFileSearch: Too long filename ending " \
+		"on %s\n", open_file->f_path.dentry->d_iname);
+	} else if (IS_ERR(result_name)) {
+		result_name = "(error)";
+		printk(KERN_WARNING "openFileSearch: Failed to construct " \
+		"filename (%ld)", PTR_ERR(result_name));
 	}
 	strncpy(result->name, result_name, OFS_RESULT_NAME_MAX_LENGTH);
 	kfree(result_name_buffer);
@@ -135,11 +141,10 @@ ofs_result_filter filter, void *filter_arg) {
 			if (open_fds_section & (1UL << fds_bit_index)) {
 				open_fd_index = fds_section_index + fds_bit_index;
 				open_file = fdt->fd[open_fd_index];
-				
+
 				if (open_file) {
-					ofs_create_result(pid, uid, open_file, filter, filter_arg);
-				} else {
-					printk(KERN_WARNING "openFileSearch: Failed to query struct file with index %u\n", open_fd_index);
+					ofs_create_result(pid, uid, open_file,
+							filter, filter_arg);
 				}
 			}
 		}
