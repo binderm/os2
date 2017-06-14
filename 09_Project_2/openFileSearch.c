@@ -24,13 +24,17 @@ static unsigned int result_count_;
 static int read_position_;
 
 static int ofs_open(struct inode *inode, struct file *flip) {
+	// do not allow concurrent use (static members would cause race
+	// conditions!)
 	if (device_opened_) {
-		printk(KERN_WARNING "openFileSearch: Driver already in use\n");
+		printk(KERN_INFO "openFileSearch: Driver already in use\n");
 		return -EBUSY;
 	}
 	device_opened_ = 1;
+
 	// close any opened search performed by another caller
 	search_performed_ = 0;
+
 	printk(KERN_INFO "openFileSearch: Opened\n");
 	return 0;
 }
@@ -56,9 +60,9 @@ int ofs_filter_by_name(struct ofs_result *result, void *filter_arg) {
 	return strncmp(result->name, name, OFS_RESULT_NAME_MAX_LENGTH) == 0;
 }
 
-static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_filter filter, void *filter_arg) {
-	pid_t pid;
-	uid_t uid;
+static void ofs_find_open_files_of_task(struct task_struct *task,
+		ofs_result_filter filter,
+		void *filter_arg) {
 	struct files_struct *files;
 	struct fdtable *fdt;
 	unsigned int fd_capacity;
@@ -79,8 +83,6 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 		return;
 	}
 
-	pid = task->pid;
-	uid = task->cred->uid.val;
 	files = task->files;
 
 	// Reading the fdtable must be protected with RCU read lock
@@ -127,7 +129,7 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 				// for getting a struct file from the fd array fcheck_files MUST be used holding the RCU read lock (see implementation: the last parameter is the index for the fd array)
 				open_file = fcheck_files(files, open_fd_index);
 				if (open_file) {
-					result->pid = pid;
+					result->pid = task->pid;
 					// TODO is atomic_long_inc_not_zero required on file->f_count?
 					result_name = d_path(&(open_file->f_path), result_name_buffer, OFS_RESULT_NAME_MAX_LENGTH);	
 
@@ -139,7 +141,7 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 
 					inode = open_file->f_inode;
 					result->permissions = inode->i_mode;
-					result->uid = uid;
+					result->uid = task->cred->uid.val;
 					result->owner = (inode->i_uid).val; // TODO use uid_t from_kuid(user_namespace, kuid_t) instead
 					result->fsize = inode->i_size;
 					result->inode_no = inode->i_ino;
@@ -160,11 +162,11 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 	kfree(result_name_buffer);
 }
 
-static void ofs_find_open_files_of_tasks(struct task_struct *task, ofs_result_filter filter, void *filter_arg) {
+static void ofs_find_open_files_of_tasks(struct task_struct *task,
+		ofs_result_filter filter, void *filter_arg) {
 	struct list_head *cursor;
 	struct task_struct *child;
 
-	// TODO printk(KERN_DEBUG "openFileSearch: open files for pid %d\n", task->pid);
 	ofs_find_open_files_of_task(task, filter, filter_arg);
 	list_for_each(cursor, &(task->children)) {
 		child = list_entry(cursor, struct task_struct, sibling);
@@ -177,16 +179,18 @@ static inline void new_search(void) {
 	result_count_ = 0;
 	read_position_ = 0;
 }
-	
+
 static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	struct pid *pid;
 	struct task_struct *task;
 
-	printk(KERN_INFO "openFileSearch: Searching for open files of task %d\n", requested_pid);
+	printk(KERN_INFO "openFileSearch: Searching for open files of task %d\n",
+			requested_pid);
 
 	if (!(pid = find_vpid(requested_pid))
 			|| !(task = pid_task(pid, PIDTYPE_PID))) {
-		printk(KERN_INFO "openFileSearch: PID %d not found\n", requested_pid);
+		printk(KERN_INFO "openFileSearch: PID %d not found\n",
+				requested_pid);
 		return -EINVAL;
 	}
 
@@ -199,11 +203,13 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 }
 
 static long ofs_find_files_opened_by_user(unsigned int uid) {
-	printk(KERN_INFO "openFileSearch: Searching for open files of user %u\n", uid);
+	printk(KERN_INFO "openFileSearch: Searching for open files of user %u\n",
+			uid);
 
-	// init_task is actually the process with pid 0 (the scheduler/swapper process)
-	// it is scheduled when a processor is idle... and its the father of all tasks
-	// --> use it as entry point for traversing all tasks
+	// init_task is actually the process with pid 0 (the scheduler/swapper
+	// process)
+	// it is scheduled when a processor is idle... and its the father of all
+	// tasks --> use it as entry point for traversing all tasks
 	new_search();
 	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_uid, &uid);
 	search_performed_ = 1;
@@ -213,7 +219,8 @@ static long ofs_find_files_opened_by_user(unsigned int uid) {
 }
 
 static long ofs_find_open_files_owned_by_user(unsigned int owner) {
-	printk(KERN_INFO "openFileSearch: Searching for open files owned by user %u\n", owner);
+	printk(KERN_INFO "openFileSearch: Searching for open files owned by " \
+			"user %u\n", owner);
 
 	new_search();
 	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_owner, &owner);
@@ -224,7 +231,8 @@ static long ofs_find_open_files_owned_by_user(unsigned int owner) {
 }
 
 static long ofs_find_open_files_with_name(char *filename) {
-	printk(KERN_INFO "openFileSearch: Searching for open files named %s\n", filename);
+	printk(KERN_INFO "openFileSearch: Searching for open files named %s\n",
+			filename);
 
 	new_search();
 	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_name, filename);
@@ -234,18 +242,23 @@ static long ofs_find_open_files_with_name(char *filename) {
 	return 0;
 }
 
-static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd, unsigned long ioctl_arg) {
+static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd,
+		unsigned long ioctl_arg) {
 	switch (ioctl_cmd) {
 		case OFS_PID:
-			return ofs_find_files_opened_by_process(*(pid_t *) ioctl_arg);
+			return ofs_find_files_opened_by_process(
+					*(pid_t *) ioctl_arg);
 		case OFS_UID:
-			return ofs_find_files_opened_by_user(*(unsigned int *) ioctl_arg);
+			return ofs_find_files_opened_by_user(
+					*(unsigned int *) ioctl_arg);
 		case OFS_OWNER:
-			return ofs_find_open_files_owned_by_user(*(unsigned int *) ioctl_arg);
+			return ofs_find_open_files_owned_by_user(
+					*(unsigned int *) ioctl_arg);
 		case OFS_NAME:
 			return ofs_find_open_files_with_name((char *) ioctl_arg);
 		default:
-			printk(KERN_INFO "openFileSearch: Unknown search command %u\n", ioctl_cmd);
+			printk(KERN_INFO "openFileSearch: Unknown search " \
+					"command %u\n", ioctl_cmd);
 			return -EINVAL;
 	}
 }
@@ -255,15 +268,19 @@ static inline unsigned int ofs_min(unsigned int a, unsigned int b) {
 }
 
 // ssize_t = long int, size_t = unsigned long, loff_t = long long 
-static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t requested_results, loff_t *offset) {
+static ssize_t ofs_read(struct file *flip, char __user *buffer,
+		size_t requested_results, loff_t *offset) {
 	unsigned int available_results,
-		     read_results;
+	read_results;
 
-	printk(KERN_INFO "openFileSearch: Read request for %lu results\n", requested_results);
-	
+	printk(KERN_INFO "openFileSearch: Read request for %lu results\n",
+			requested_results);
+
 	// require a prior call of ioctl
 	if (!search_performed_) {
-		printk(KERN_INFO "openFileSearch: Search has not been performed yet or all results have already been read\n");
+		printk(KERN_INFO "openFileSearch: Search has not been " \
+				"performed yet or all results have already " \
+				"been read\n");
 		return -ESRCH;
 	}
 
@@ -272,14 +289,16 @@ static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t requested
 	read_results = ofs_min(requested_results, available_results);
 
 	if (available_results) {
-		copy_to_user(buffer, &results_[read_position_], read_results * sizeof(struct ofs_result));
+		copy_to_user(buffer, &results_[read_position_],
+				read_results * sizeof(struct ofs_result));
 		read_position_ += read_results;
 	} else {	
 		// close search if no (more) results are available
 		search_performed_ = 0;
 	}
 
-	printk(KERN_INFO "openFileSearch: %d/%d results read\n", read_results, available_results);
+	printk(KERN_INFO "openFileSearch: %d/%d results read\n", read_results,
+			available_results);
 	return read_results;
 }
 
@@ -290,7 +309,7 @@ static int ofs_release(struct inode *inode, struct file *flip) {
 }
 
 static struct file_operations fops = {
-	.owner = THIS_MODULE, // https://stackoverflow.com/a/6079839/1948906
+	.owner = THIS_MODULE, // see https://stackoverflow.com/a/6079839/1948906
 	.open = ofs_open,
 	.unlocked_ioctl = ofs_ioctl,
 	.read = ofs_read,
@@ -298,33 +317,41 @@ static struct file_operations fops = {
 };
 
 static int __init ofs_init(void) {
-	// allocate normal kernel ram for storing the results in
-	if (!(results_ = kmalloc(OFS_MAX_RESULTS * sizeof(struct ofs_result), GFP_KERNEL))) {
-		printk(KERN_ERR "openFileSearch: Failed to allocate memory for results\n");
+	// dynamically allocate kernel memory which is reused over and over again
+	if (!(results_ = kmalloc(OFS_MAX_RESULTS * sizeof(struct ofs_result),
+					GFP_KERNEL))) {
+		printk(KERN_ERR "openFileSearch: Failed to allocate memory " \
+				"for results\n");
 		return -1;
 	}
 
-	// major = 0 --> dynamically allocate major number should be returned
-	// name --> name of device in /proc/devices
+	// major = 0 --> use a dynamically created major number
+	// name --> module name in /proc/devices
 	// fops --> supported file operations
 	major_num_ = register_chrdev(0, MODULE_NAME, &fops);
 	if (major_num_ < 0) {
-		printk(KERN_ERR "openFileSearch: Failed to register as character device: error %d\n", major_num_);
+		printk(KERN_ERR "openFileSearch: Failed to register as \
+				character device (%d)\n", major_num_);
 		return -1;
 	}
 
-	printk(KERN_INFO "openFileSearch: Registered as character device under major number %d.\n" \
-			"     Create special file via\n" \
-			"     mknod /dev/openFileSearchDev c %d 0\n", major_num_, major_num_);
+	// log major number so user can create a device file
+	printk(KERN_INFO "openFileSearch: Registered as character device " \
+			"under major number %d.\nCreate a device file via\n" \
+			"mknod /dev/openFileSearchDev c %d 0\n",
+			major_num_, major_num_);
 	return 0;
 }
 
 static void __exit ofs_exit(void) {
+	// free any dynamically allocated memory
 	kfree(results_);
 
-	// return type of unregister_chrdev was changed to void as it always returned 0 (always succeeds)
+	// return type of unregister_chrdev was changed to void as it always
+	// returned 0 (always succeeds)
 	unregister_chrdev(major_num_, MODULE_NAME);
-	printk(KERN_INFO "openFileSearch: Unregistered character device with major number %d\n", major_num_);
+	printk(KERN_INFO "openFileSearch: Unregistered character device with " \
+			"major number %d\n", major_num_);
 }
 
 module_init(ofs_init);
