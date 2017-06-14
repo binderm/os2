@@ -56,14 +56,17 @@ int main(int argc, char **argv) {
 		printf("[  OK  ] ioctl %s\n", ioctl_cmd_str);
 	}
 
-	struct ofs_result result;
+	struct ofs_result results[10];
 	if (search_failed) {
 		printf("[ SKIP ] read\n");
 	} else {
 		int result_count;
-		while ((result_count = read(fd, &result, 1)) > 0) {
-			printf("         - %s\n              pid: %d, uid: %d, owner: %d, permissions: %u, fsize: %u, inode_no: %lu\n",
-				result.name, result.pid, result.uid, result.owner, result.permissions, result.fsize, result.inode_no);
+		while ((result_count = read(fd, &results, 10)) > 0) {
+			for (int i = 0; i < result_count; i++) {
+				struct ofs_result *result = &results[i];
+				printf("         - %s\n              pid: %d, uid: %d, owner: %d, permissions: %u, fsize: %u, inode_no: %lu\n",
+						result->name, result->pid, result->uid, result->owner, result->permissions, result->fsize, result->inode_no);
+			}
 		}
 		if (result_count < 0) {
 			fprintf(stderr, "[FAILED] read: %s\n", strerror(errno));
