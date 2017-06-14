@@ -32,10 +32,25 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 	}
 	device_opened_ = 1;
 
+	if (!(results_ = kmalloc(OFS_MAX_RESULTS * sizeof(struct ofs_result),
+					GFP_KERNEL))) {
+		printk(KERN_ERR "openFileSearch: Failed to allocate memory " \
+				"for results\n");
+		return -1;
+	}
+
 	// close any opened search performed by another caller
 	search_performed_ = 0;
 
 	printk(KERN_INFO "openFileSearch: Opened\n");
+	return 0;
+}
+
+static int ofs_release(struct inode *inode, struct file *flip) {
+	device_opened_ = 0;
+	kfree(results_);
+
+	printk(KERN_INFO "openFileSearch: Released\n");
 	return 0;
 }
 
@@ -302,29 +317,15 @@ static ssize_t ofs_read(struct file *flip, char __user *buffer,
 	return read_results;
 }
 
-static int ofs_release(struct inode *inode, struct file *flip) {
-	device_opened_ = 0;
-	printk(KERN_INFO "openFileSearch: Released\n");
-	return 0;
-}
-
 static struct file_operations fops = {
 	.owner = THIS_MODULE, // see https://stackoverflow.com/a/6079839/1948906
 	.open = ofs_open,
+	.release = ofs_release,
 	.unlocked_ioctl = ofs_ioctl,
-	.read = ofs_read,
-	.release = ofs_release
+	.read = ofs_read
 };
 
 static int __init ofs_init(void) {
-	// dynamically allocate kernel memory which is reused over and over again
-	if (!(results_ = kmalloc(OFS_MAX_RESULTS * sizeof(struct ofs_result),
-					GFP_KERNEL))) {
-		printk(KERN_ERR "openFileSearch: Failed to allocate memory " \
-				"for results\n");
-		return -1;
-	}
-
 	// major = 0 --> use a dynamically created major number
 	// name --> module name in /proc/devices
 	// fops --> supported file operations
@@ -344,12 +345,8 @@ static int __init ofs_init(void) {
 }
 
 static void __exit ofs_exit(void) {
-	// free any dynamically allocated memory
-	kfree(results_);
-
-	// return type of unregister_chrdev was changed to void as it always
-	// returned 0 (always succeeds)
 	unregister_chrdev(major_num_, MODULE_NAME);
+	
 	printk(KERN_INFO "openFileSearch: Unregistered character device with " \
 			"major number %d\n", major_num_);
 }
