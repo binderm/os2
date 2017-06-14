@@ -13,9 +13,8 @@
 #include "openFileSearch.h"
 #define MODULE_NAME "openFileSearch"
 
-MODULE_AUTHOR("Marcel Binder <binder4@hm.edu");
+MODULE_AUTHOR("Marcel Binder <binder4@hm.edu>");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("...");
 
 static int major_num_;
 static int device_opened_ = 0;
@@ -80,10 +79,10 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 	pid = task->pid;
 	uid = task->cred->uid.val;
 	files = task->files;
-	
+
 	// Reading the fdtable must be protected with RCU read lock
 	rcu_read_lock();
-	
+
 	// reference to file_struct::fdt MUST be done via files_fdtable macro
 	// --> ensures lock-free dereference (see <kernel>/Documentation/filesystems/files.txt)
 	// (files_struct::fdt initially points to files_struct::fdtab but elsewhere after possible expansion of fdtable)
@@ -110,7 +109,7 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 	for (fds_section_index = 0; !limit_exerceeded && fds_section_index < fds_length; fds_section_index++) {
 		open_fds_section = fdt->open_fds[fds_section_index];
 		printk(KERN_DEBUG "ofs: open_fds[%u]=%lu\n", fds_section_index, open_fds_section);
-		
+
 		for (fds_bit_index = 0; !limit_exerceeded && fds_bit_index < BITS_PER_LONG; fds_bit_index++) {
 			if (open_fds_section & (1UL << fds_bit_index)) {
 				if (result_count_ > OFS_MAX_RESULTS) {
@@ -143,7 +142,7 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 					result->inode_no = inode->i_ino;
 					if (filter(result, filter_arg)) {
 						printk(KERN_DEBUG "ofs: Result#%u: name=%s\npermissions=%u, owner=%u, fsize=%u, inode_no=%lu\n",
-							result_count_, result->name, result->permissions, result->owner, result->fsize, result->inode_no);
+								result_count_, result->name, result->permissions, result->owner, result->fsize, result->inode_no);
 						result_count_++;
 					}
 				} else {
@@ -162,31 +161,27 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	struct pid *pid;
 	struct task_struct *task;
-		
-	printk(KERN_INFO "ofs: Find open files of process %u\n", requested_pid);
-	// wrap numberic pid to struct pid --> new struct pid is allocated when pid is reused (wrap around) --> safer reference
-	pid = find_vpid(requested_pid);
-	if (!pid) {
-		printk(KERN_WARNING "ofs: find_vpid failed\n");
-		return -EINVAL;
-	}
 
-	task = pid_task(pid, PIDTYPE_PID);
-	if (!task) {
-		printk(KERN_WARNING "ofs: Failed to get task_stuct for pid %u. Might not exist.\n", requested_pid);
+	printk(KERN_INFO "ofs: Searching for open files of task %d\n", requested_pid);
+
+	if (!(pid = find_vpid(requested_pid))
+			|| !(task = pid_task(pid, PIDTYPE_PID))) {
+		printk(KERN_INFO "ofs: PID %d not found\n", requested_pid);
 		return -EINVAL;
 	}
 
 	result_count_ = 0;
 	ofs_find_open_files_of_task(task, &ofs_no_filter, NULL);
 	search_performed_ = 1;
+
+	printk(KERN_INFO "ofs: %d results found\n", result_count_);
 	return 0;
 }
 
 static void ofs_find_open_files_of_tasks(struct task_struct *task, ofs_result_filter filter, void *filter_arg) {
 	struct list_head *cursor;
 	struct task_struct *child;
-	
+
 	printk(KERN_DEBUG "ofs: open files for pid %d\n", task->pid);
 	ofs_find_open_files_of_task(task, filter, filter_arg);
 	list_for_each(cursor, &(task->children)) {
@@ -196,7 +191,7 @@ static void ofs_find_open_files_of_tasks(struct task_struct *task, ofs_result_fi
 }
 
 static long ofs_find_files_opened_by_user(unsigned int uid) {
-	printk(KERN_INFO "ofs: Find all open files of user %u\n", uid);
+	printk(KERN_INFO "ofs: Searching for open files of user %u\n", uid);
 
 	// init_task is actually the process with pid 0 (the scheduler/swapper process)
 	// it is scheduled when a processor is idle... and its the father of all tasks
@@ -204,24 +199,30 @@ static long ofs_find_files_opened_by_user(unsigned int uid) {
 	result_count_ = 0;
 	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_uid, (void *) &uid);
 	search_performed_ = 1;
+
+	printk(KERN_INFO "ofs: %d results found\n", result_count_);
 	return 0;
 }
 
 static long ofs_find_open_files_owned_by_user(unsigned int owner) {
-	printk(KERN_INFO "ofs: Find all open files owned by user %u\n", owner);
-	
+	printk(KERN_INFO "ofs: Searching for open files owned by user %u\n", owner);
+
 	result_count_ = 0;
 	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_owner, (void *) &owner);
 	search_performed_ = 1;
+
+	printk(KERN_INFO "ofs: %d results found\n", result_count_); 
 	return 0;
 }
 
 static long ofs_find_open_files_with_name(char *filename) {
-	printk(KERN_INFO "ofs: Find all open files with name %s\n", filename);
-	
+	printk(KERN_INFO "ofs: Searching for open files named %s\n", filename);
+
 	result_count_ = 0;
 	ofs_find_open_files_of_tasks(&init_task, &ofs_filter_by_name, (void *) filename);
 	search_performed_ = 1;
+
+	printk(KERN_INFO "ofs: %d results found\n", result_count_);
 	return 0;
 }
 
@@ -236,10 +237,9 @@ static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd, unsigned long i
 		case OFS_NAME:
 			return ofs_find_open_files_with_name((char *) ioctl_arg);
 		default:
-			printk(KERN_WARNING "Unknown ioctl command %u\n", ioctl_cmd);
+			printk(KERN_INFO "ofs: Unknown search command %u\n", ioctl_cmd);
 			return -EINVAL;
 	}
-	return 0;
 }
 
 static inline unsigned int ofs_min(unsigned int a, unsigned int b) {
@@ -249,12 +249,14 @@ static inline unsigned int ofs_min(unsigned int a, unsigned int b) {
 // ssize_t = long int, size_t = unsigned long, loff_t = long long 
 static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t length, loff_t *offset) {
 	unsigned int result_count;
+
+	printk(KERN_INFO "ofs: Read request for %lu results\n", length);
 	// require a prior call of ioctl
 	if (!search_performed_) {
-		printk(KERN_WARNING "ofs: No search has been performed yet. Perform a search via ioctl\n");
+		printk(KERN_INFO "ofs: Search has not been performed yet or all results have already been read\n");
 		return -ESRCH;
 	}
-	
+
 	// truncate request to a maximum of 256 results
 	// TODO use offset
 	result_count = ofs_min(length, ofs_min(result_count_, OFS_MAX_RESULTS));
@@ -264,6 +266,8 @@ static ssize_t ofs_read(struct file *flip, char __user *buffer, size_t length, l
 	// clear search flag and result counter
 	search_performed_ = 0;
 	result_count_ = 0;
+
+	printk(KERN_INFO "ofs: %d results have been available\n", result_count);
 	return result_count;
 }
 
@@ -298,8 +302,8 @@ static int __init ofs_init(void) {
 	}
 
 	printk(KERN_INFO "ofs: Registered as character device under major number %d.\n" \
-			"Create special file via\n" \
-			"mknod /dev/openFileSearchDev c %d 0\n", major_num_, major_num_);
+			"     Create special file via\n" \
+			"     mknod /dev/openFileSearchDev c %d 0\n", major_num_, major_num_);
 	return 0;
 }
 
