@@ -19,7 +19,7 @@ MODULE_DESCRIPTION("...");
 
 static int major_num_;
 static int device_opened_ = 0;
-static struct ofs_result results_[OFS_MAX_RESULTS];
+static struct ofs_result *results_;
 static int search_performed_ = 0;
 static unsigned int result_count_ = 0;
 
@@ -68,9 +68,14 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 	unsigned int fds_bit_index;
 	unsigned int open_fd_index;
 	struct file *open_file;
-	char result_name_buffer[OFS_RESULT_NAME_MAX_LENGTH];
-	char *result_name = result_name_buffer;
+	char *result_name_buffer;
+	char *result_name;
 	struct inode *inode;
+
+	if (!(result_name_buffer = kmalloc(OFS_RESULT_NAME_MAX_LENGTH * sizeof(char), GFP_KERNEL))) {
+		printk(KERN_ERR "ofs: Failed to allocate memory for result name\n");
+		return;
+	}
 
 	pid = task->pid;
 	uid = task->cred->uid.val;
@@ -131,7 +136,6 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 					strncpy(result->name, result_name, OFS_RESULT_NAME_MAX_LENGTH);
 
 					inode = open_file->f_inode;
-					printk(KERN_DEBUG "ofs: inode=%d\n", inode != NULL);
 					result->permissions = inode->i_mode;
 					result->uid = uid;
 					result->owner = (inode->i_uid).val; // TODO use uid_t from_kuid(user_namespace, kuid_t) instead
@@ -151,6 +155,8 @@ static void ofs_find_open_files_of_task(struct task_struct *task, ofs_result_fil
 
 	// Unlock read access to fdtable
 	rcu_read_unlock();
+
+	kfree(result_name_buffer);
 }
 
 static long ofs_find_files_opened_by_process(pid_t requested_pid) {
@@ -277,6 +283,12 @@ static struct file_operations fops = {
 };
 
 static int __init ofs_init(void) {
+	// allocate normal kernel ram for storing the results in
+	if (!(results_ = kmalloc(OFS_MAX_RESULTS * sizeof(struct ofs_result), GFP_KERNEL))) {
+		printk(KERN_ERR "ofs: Failed to allocate memory for results\n");
+		return -1;
+	}
+
 	// major = 0 --> dynamically allocate major number should be returned
 	// name --> name of device in /proc/devices
 	// fops --> supported file operations
@@ -293,6 +305,8 @@ static int __init ofs_init(void) {
 }
 
 static void __exit ofs_exit(void) {
+	kfree(results_);
+
 	// return type of unregister_chrdev was changed to void as it always returned 0 (always succeeds)
 	unregister_chrdev(major_num_, MODULE_NAME);
 	printk(KERN_INFO "ofs: Unregistered character device with major number %d\n", major_num_);
@@ -300,3 +314,4 @@ static void __exit ofs_exit(void) {
 
 module_init(ofs_init);
 module_exit(ofs_exit);
+
