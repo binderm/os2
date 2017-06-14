@@ -119,24 +119,29 @@ ofs_result_filter filter, void *filter_arg) {
 	// length of the fds arrays is therefore max_fds / BITS_PER_LONG
 	unsigned int fd_capacity = fdt->max_fds;
 	unsigned int fds_length = fd_capacity / BITS_PER_LONG;
-	unsigned int fds_section_index = 0;
-	unsigned int open_fd_index = 0;
-	unsigned long bitmask = 1UL;
+
+	unsigned int fds_section_index;
+	unsigned long open_fds_section;
+	unsigned int fds_bit_index;
+	unsigned int open_fd_index;
 	struct file *open_file;
 
-	while (fds_section_index < fds_length
-			&& result_count_ < OFS_MAX_RESULTS) {
-		if (fdt->open_fds[fds_section_index] & bitmask) {
-			if ((open_file = fdt->fd[open_fd_index])) {
-				ofs_create_result(pid, uid, open_file, filter,
-						filter_arg);
-			}
-		}
+	for (fds_section_index = 0; result_count_ < OFS_MAX_RESULTS
+			&& fds_section_index < fds_length; fds_section_index++) {
+		open_fds_section = fdt->open_fds[fds_section_index];
 
-		open_fd_index++;
-		if (!(bitmask = bitmask << 1UL)) {
-			fds_section_index++;
-			bitmask = 1UL;
+		for (fds_bit_index = 0; result_count_ < OFS_MAX_RESULTS
+				&& fds_bit_index < BITS_PER_LONG; fds_bit_index++) {
+			if (open_fds_section & (1UL << fds_bit_index)) {
+				open_fd_index = fds_section_index + fds_bit_index;
+				open_file = fdt->fd[open_fd_index];
+				
+				if (open_file) {
+					ofs_create_result(pid, uid, open_file, filter, filter_arg);
+				} else {
+					printk(KERN_WARNING "openFileSearch: Failed to query struct file with index %u\n", open_fd_index);
+				}
+			}
 		}
 	}
 }
