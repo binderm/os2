@@ -17,9 +17,9 @@ MODULE_AUTHOR("Marcel Binder <binder4@hm.edu>");
 MODULE_LICENSE("GPL");
 
 static int major_num_;
-static int device_opened_ = 0;
+static bool device_opened_ = 0;
 static struct ofs_result *results_;
-static int search_performed_;
+static bool search_performed_;
 static unsigned int result_count_;
 static int read_position_;
 
@@ -110,10 +110,12 @@ ofs_result_filter filter, void *filter_arg) {
 	kfree(result_name_buffer);
 
 	inode = open_fd->f_inode;
+	inode_lock_shared(inode);
 	result->permissions = inode->i_mode;
 	result->owner = (inode->i_uid).val;
 	result->fsize = inode->i_size;
 	result->inode_no = inode->i_ino;
+	inode_unlock_shared(inode);
 
 	if (filter(result, filter_arg)) {
 		result_count_++;
@@ -123,10 +125,10 @@ ofs_result_filter filter, void *filter_arg) {
 static void ofs_search(struct task_struct *task,
 		ofs_result_filter filter,
 		void *filter_arg) {
-	struct files_struct *files = task->files;
-	struct fdtable *fdt;
 	pid_t pid = task->pid;
-	uid_t uid = task->cred->uid.val;
+	uid_t uid;
+	struct files_struct *files;
+	struct fdtable *fdt;
 	unsigned int fd;
 	unsigned int max_fds;
 	struct file *open_fd;
@@ -134,6 +136,9 @@ static void ofs_search(struct task_struct *task,
 	rcu_read_lock();
 	uid = rcu_dereference(task->cred)->uid.val;
 	rcu_read_unlock();
+
+	task_lock(task);
+	files = task->files;
 
 	rcu_read_lock();
 	// reference to file_struct::fdt MUST be done via files_fdtable macro
@@ -145,12 +150,15 @@ static void ofs_search(struct task_struct *task,
 	for (fd = 0; result_count_ < OFS_MAX_RESULTS && fd < max_fds; fd++) {
 		if (fd_is_open(fd, fdt)) {
 			rcu_read_lock();
+			// it's recommended to use fcheck_files() here
+			// but it would check if fd < max_fds on every call
 			open_fd = rcu_dereference_raw(fdt->fd[fd]);
 			ofs_found(pid, uid, open_fd, filter, filter_arg);
 			rcu_read_unlock();
 		}
 	}
 	rcu_read_unlock();
+	task_unlock(task);
 }
 
 static void ofs_search_r(struct task_struct *task,
