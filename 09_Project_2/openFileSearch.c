@@ -81,6 +81,7 @@ ofs_result_filter filter, void *filter_arg) {
 	char *result_name_buffer;
 	char *result_name;
 	struct inode *inode;
+	char *result_name_ending;
 
 	result->pid = pid;
 	result->uid = uid;
@@ -91,17 +92,21 @@ ofs_result_filter filter, void *filter_arg) {
 	}
 	// TODO is atomic_long_inc_not_zero required on file->f_count?
 	result_name = d_path(&(open_fd->f_path), result_name_buffer,
-	OFS_RESULT_NAME_MAX_LENGTH);	
+			OFS_RESULT_NAME_MAX_LENGTH);	
 	if (IS_ERR(result_name) && PTR_ERR(result_name) == -ENAMETOOLONG) {
-		result_name = "(too long)";
-		printk(KERN_INFO "openFileSearch: Too long filename ending " \
-		"on %s\n", open_fd->f_path.dentry->d_iname);
+		result_name = result_name_buffer;
+		result_name_ending = open_fd->f_path.dentry->d_iname;
+		strcpy(result_name, ".../");
+		strlcpy(&result_name[4], result_name_ending,
+				OFS_RESULT_NAME_MAX_LENGTH);
+		printk(KERN_INFO "openFileSearch: filename too long: .../%s\n",
+				result_name_ending);
 	} else if (IS_ERR(result_name)) {
 		result_name = "(error)";
 		printk(KERN_WARNING "openFileSearch: Failed to construct " \
-		"filename (%ld)", PTR_ERR(result_name));
+				"filename (%ld)", PTR_ERR(result_name));
 	}
-	strncpy(result->name, result_name, OFS_RESULT_NAME_MAX_LENGTH);
+	strlcpy(result->name, result_name, OFS_RESULT_NAME_MAX_LENGTH);
 	kfree(result_name_buffer);
 
 	inode = open_fd->f_inode;
