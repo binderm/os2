@@ -75,55 +75,66 @@ int ofs_filter_by_name(struct ofs_result *result, void *filter_arg) {
 	return strncmp(result->name, name, OFS_RESULT_NAME_MAX_LENGTH) == 0;
 }
 
-static void ofs_found(pid_t pid, uid_t uid, struct file *open_fd,
-ofs_result_filter filter, void *filter_arg) {
-	struct ofs_result *result = &results_[result_count_];
-	char *result_name_buffer;
-	char *result_name;
-	struct inode *inode;
-	char *result_name_ending;
+static void ofs_result_path(struct ofs_result *result, struct path *path) {
+	char *name_buffer;
+	char *name;
+	char *short_name;
+	int error;
 
-	result->pid = pid;
-	result->uid = uid;
-	
-	if (!(result_name_buffer = kmalloc(OFS_RESULT_NAME_MAX_LENGTH * sizeof(char), GFP_KERNEL))) {
-		printk(KERN_ERR "openFileSearch: Failed to allocate memory for result name\n");
+	name_buffer = kmalloc(OFS_RESULT_NAME_MAX_LENGTH * sizeof(char),
+			GFP_KERNEL);
+	if (!name_buffer) {
+		printk(KERN_ERR "openFileSearch: Allocation of result name " \
+				"buffer failed\n");
 		return;
 	}
-	// TODO is atomic_long_inc_not_zero required on file->f_count?
-	result_name = d_path(&(open_fd->f_path), result_name_buffer,
-			OFS_RESULT_NAME_MAX_LENGTH);	
-	if (IS_ERR(result_name) && PTR_ERR(result_name) == -ENAMETOOLONG) {
-		result_name = result_name_buffer;
-		result_name_ending = open_fd->f_path.dentry->d_iname;
-		strcpy(result_name, ".../");
-		strlcpy(&result_name[4], result_name_ending,
-				OFS_RESULT_NAME_MAX_LENGTH);
-		printk(KERN_INFO "openFileSearch: filename too long: .../%s\n",
-				result_name_ending);
-	} else if (IS_ERR(result_name)) {
-		result_name = "(error)";
-		printk(KERN_WARNING "openFileSearch: Failed to construct " \
-				"filename (%ld)", PTR_ERR(result_name));
-	}
-	strlcpy(result->name, result_name, OFS_RESULT_NAME_MAX_LENGTH);
-	kfree(result_name_buffer);
 
-	inode = open_fd->f_inode;
+	name = d_path(path, name_buffer, OFS_RESULT_NAME_MAX_LENGTH);
+	error = IS_ERR(name) ? PTR_ERR(name) : 0;
+	if (error == -ENAMETOOLONG) {
+		name = name_buffer;
+		strcpy(name, ".../");
+		short_name = path->dentry->d_iname;
+		strlcpy(&name[4], short_name, OFS_RESULT_NAME_MAX_LENGTH);
+		printk(KERN_INFO "openFileSearch: filename too long: .../%s\n",
+				short_name);
+	} else if (error) {
+		name = name_buffer;
+		name = "(error)";
+		printk(KERN_ERR "openFileSearch: Unexpected error when " \
+				"reconstructing the path of an open file (%ld)\n",
+				PTR_ERR(name));
+	}
+
+	strlcpy(result->name, name, OFS_RESULT_NAME_MAX_LENGTH);
+	kfree(name_buffer);
+}
+
+static void ofs_result_inode(struct ofs_result *result, struct inode *inode) {
 	inode_lock_shared(inode);
 	result->permissions = inode->i_mode;
 	result->owner = (inode->i_uid).val;
 	result->fsize = inode->i_size;
 	result->inode_no = inode->i_ino;
 	inode_unlock_shared(inode);
+}
+
+static void ofs_found(pid_t pid, uid_t uid, struct file *open_fd,
+		ofs_result_filter filter, void *filter_arg) {
+	struct ofs_result *result = &results_[result_count_];
+
+	result->pid = pid;
+	result->uid = uid;
+
+	ofs_result_path(result, &open_fd->f_path);
+	ofs_result_inode(result, open_fd->f_inode);
 
 	if (filter(result, filter_arg)) {
 		result_count_++;
 	}
 }
 
-static void ofs_search(struct task_struct *task,
-		ofs_result_filter filter,
+static void ofs_search(struct task_struct *task, ofs_result_filter filter,
 		void *filter_arg) {
 	pid_t pid = task->pid;
 	uid_t uid;
@@ -161,8 +172,8 @@ static void ofs_search(struct task_struct *task,
 	task_unlock(task);
 }
 
-static void ofs_search_r(struct task_struct *task,
-		ofs_result_filter filter, void *filter_arg) {
+static void ofs_search_r(struct task_struct *task, ofs_result_filter filter,
+		void *filter_arg) {
 	struct list_head *cursor;
 	struct task_struct *child;
 
@@ -173,7 +184,7 @@ static void ofs_search_r(struct task_struct *task,
 	}
 }
 
-static inline void new_search(void) {
+static void new_search(void) {
 	search_performed_ = 0;
 	result_count_ = 0;
 	read_position_ = 0;
