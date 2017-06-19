@@ -1,17 +1,19 @@
-==============================================================================
+===============================================================================
 System Open File Search
 OS2 Project Assignment #2
 Author: Marcel Binder
-==============================================================================
+===============================================================================
 
                             Working features
 all requested 
 
 Building
+--------
 * make clean
 * make all
 
 Header file for user programs
+-----------------------------
 (constants for IOCTL commands and struct ofs_result)
 openFileSearch.h
 
