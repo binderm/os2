@@ -1,0 +1,97 @@
+==============================================================================
+System Open File Search
+OS2 Project Assignment #2
+Author: Marcel Binder
+==============================================================================
+
+                            Working features
+all requested 
+
+Building
+* make clean
+* make all
+
+Header file for user programs
+(constants for IOCTL commands and struct ofs_result)
+openFileSearch.h
+
+
+                             Implementation
+open
+====
+The implementation cannot be used concurrently by multiple threads due to the
+usage of static variables and missing synchronization. Therefore open checks
+whether the device is already in use and fails with -EBUSY if so. Any search of
+a previous user is discarded.
+As the array for the results is likely to be required multiple times and can be
+reused for multiple searches it is allocated in open.
+
+release
+=======
+The memory allocated for storing the results is freed and the device_opened_
+flag is cleared so opening the device is permitted again.
+
+ioctl
+=====
+Depending on the IOCTL command the search request is dispatched to an
+appropriate method. If an invaild IOCTL command is provided the call fails with
+-EINVAL.
+
+OFS_PID
+-------
+For this case *all* open files of a *single* task are queried. The struct
+task_struct is requested for the provided PID. The request fails in case of an
+non existing PID which is indicated by returning -EINVAL. The actual search is
+performed in ofs_search() which is called with the found struct task_struct and
+a filter matching all results.
+
+ofs_search() traverses the open files of a single task converting each into an
+struct ofs_result and applying a filter to it. Results matching the filter
+criteria are added at the end of the result array all others are discarded. If
+the maximum number of results is reached the traversation is stopped.
+
+OFS_UID, OFS_OWNER and OFS_NAME
+-------------------------------
+For this case the search basis are *all* open files of *all* tasks. But only
+files matching certain criteria (equal UID, owner or name) should be included
+in the results.
+Idea: The init task (PID 1) is the root of the process tree and should be the
+entry point for traversing all processes. The kernel exports a symbol init_task
+of type struct task_struct which is actually the process with PID 0 (scheduler
+or swapper process). But this works fine as well. The macro list_for_each is
+used to iterate over the children.
+
+read
+====
+After a search has been performed read() can be called multiple times until no
+more results are available. Due to the fact that ofs_search() stops inserting
+when reaching the array capacity read() can rely on read_count_.
+
+Example:
+10 elements have been found during search
+read is called each time with a buffer of size 3
+
+| read() call | filled in buffer              | return |
+|-------------|-------------------------------|--------|
+| 1           | results #1-3                  | 3      |
+| 2           | results #4-6                  | 3      |
+| 3           | results #7-9                  | 3      |
+| 4           | result #10                    | 1      |
+| 5           | -                             | 0      |
+|             | no more results are available | 0      |
+|             | clear search_performed_ flag  |        |
+| 6           | -                             | -ESRCH |
+|             | no search has been performed  |        |
+|             | yet                           |        |
+
+                               Known bugs
+* Not a real bug but a special behaviour for handling too long filenames:
+  Especially the paths of system.journal, user-<UID>.journal and
+  user@<UID>.service are much longer than 64 characters. In the results these
+  names will be shortened e.g. ".../system.journal"
+  Searching by name can also be performed by using the .../ prefix.
+
+Tested with following kernels (uname -r -v)
+* 4.11.3-1-ARCH #1 SMP PREEMPT
+* 4.10.4.1-ARCH #1 SMP PREEMPT
+
