@@ -24,6 +24,7 @@ static unsigned int result_count_;
 static int read_position_;
 
 static int ofs_open(struct inode *inode, struct file *flip) {
+	printk(KERN_INFO "openFileSearch: Open request\n");
 	// do not allow concurrent use (static members would cause race
 	// conditions!)
 	if (device_opened_) {
@@ -47,6 +48,7 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 }
 
 static int ofs_release(struct inode *inode, struct file *flip) {
+	printk(KERN_INFO "openFileSearch: Release request\n");
 	device_opened_ = 0;
 	kfree(results_);
 
