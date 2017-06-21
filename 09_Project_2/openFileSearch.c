@@ -11,6 +11,7 @@
 #include <linux/err.h>
 #include <linux/init_task.h>
 #include "openFileSearch.h"
+
 #define MODULE_NAME "openFileSearch"
 
 MODULE_AUTHOR("Marcel Binder <binder4@hm.edu>");
@@ -27,7 +28,7 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 	// do not allow concurrent use (static members would cause race
 	// conditions!)
 	if (device_opened_) {
-		printk(KERN_INFO "openFileSearch: Driver already in use\n");
+		printk(KERN_WARNING "openFileSearch: Driver already in use\n");
 		return -EBUSY;
 	}
 	device_opened_ = 1;
@@ -96,7 +97,8 @@ static void ofs_result_path(struct ofs_result *result, struct path *path) {
 		strcpy(name, ".../");
 		short_name = path->dentry->d_iname;
 		strlcpy(&name[4], short_name, OFS_RESULT_NAME_MAX_LENGTH);
-		printk(KERN_INFO "openFileSearch: filename too long: .../%s\n",
+		printk(KERN_WARNING "openFileSearch: filename too long, " \
+				"going to use short version instead: .../%s\n",
 				short_name);
 	} else if (error) {
 		name = name_buffer;
@@ -173,16 +175,13 @@ static void ofs_search(struct task_struct *task, ofs_result_filter filter,
 	task_unlock(task);
 }
 
-static void ofs_search_r(struct task_struct *task, ofs_result_filter filter,
-		void *filter_arg) {
-	struct list_head *cursor;
-	struct task_struct *child;
+static void ofs_search_all(ofs_result_filter filter, void *filter_arg) {
+	struct task_struct *task;
 
-	if (result_count_ < OFS_MAX_RESULTS) {
+	for_each_process(task) {
 		ofs_search(task, filter, filter_arg);
-		list_for_each(cursor, &(task->children)) {
-			child = list_entry(cursor, struct task_struct, sibling);
-			ofs_search_r(child, filter, filter_arg);
+		if (result_count_ >= OFS_MAX_RESULTS) {
+			return;
 		}
 	}
 }
@@ -202,7 +201,7 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 
 	if (!(pid = find_vpid(requested_pid))
 			|| !(task = pid_task(pid, PIDTYPE_PID))) {
-		printk(KERN_INFO "openFileSearch: PID %d not found\n",
+		printk(KERN_WARNING "openFileSearch: PID %d not found\n",
 				requested_pid);
 		return -EINVAL;
 	}
@@ -220,7 +219,7 @@ static long ofs_find_files_opened_by_user(unsigned int uid) {
 			uid);
 
 	new_search();
-	ofs_search_r(&init_task, &ofs_filter_by_uid, &uid);
+	ofs_search_all(&ofs_filter_by_uid, &uid);
 	search_performed_ = 1;
 
 	printk(KERN_INFO "openFileSearch: %d results found\n", result_count_);
@@ -232,7 +231,7 @@ static long ofs_find_open_files_owned_by_user(unsigned int owner) {
 			"user %u\n", owner);
 
 	new_search();
-	ofs_search_r(&init_task, &ofs_filter_by_owner, &owner);
+	ofs_search_all(&ofs_filter_by_owner, &owner);
 	search_performed_ = 1;
 
 	printk(KERN_INFO "openFileSearch: %d results found\n", result_count_); 
@@ -240,28 +239,39 @@ static long ofs_find_open_files_owned_by_user(unsigned int owner) {
 }
 
 static long ofs_find_open_files_with_name(__user char *name) {
-	size_t filename_length = strlen(name);
-	if (filename_length > OFS_RESULT_NAME_MAX_LENGTH) {
-		printk(KERN_INFO "openFileSearch: Searched filename must " \
-				"not have more than %lu characters but has " \
-				"%lu\n", OFS_RESULT_NAME_MAX_LENGTH,
-				filename_length);
-		return -EINVAL;
+	char *filename;
+	size_t length;
+
+	if (!(filename = kmalloc(OFS_RESULT_NAME_MAX_LENGTH * sizeof(char),
+					GFP_KERNEL))) {
+		printk(KERN_ERR "openFileSearch: Failed to allocate memory " \
+				" for filename\n");
+		return -EIO;
 	}
 
-	char *filename = kmalloc(OFS_RESULT_NAME_MAX_LENGTH
-			* sizeof(char), GFP_KERNEL);
-	if (!filename) {
-		printk(KERN_ERR "Failed to allocate memory for filename\n");
-		return -1;
+	if (copy_from_user(filename, name, OFS_RESULT_NAME_MAX_LENGTH
+				* sizeof(char))) {
+		printk(KERN_ERR "openFileSearch: Failed to copy filename to " \
+				"kernel memory\n");
+		return -EIO;
 	}
-	strlcpy(filename, name, OFS_RESULT_NAME_MAX_LENGTH);
+
+	length = strnlen(filename, OFS_RESULT_NAME_MAX_LENGTH);
+	if (length == OFS_RESULT_NAME_MAX_LENGTH) {
+		// the length must not be higher than max - 1 in order to be
+		// properly NULL-terminated!
+		printk(KERN_WARNING "openFileSearch: Searched filename must " \
+				"not be longer than %u characters " \
+				"(including '\\0').\n",
+				OFS_RESULT_NAME_MAX_LENGTH);
+		return -EINVAL;
+	}
 
 	printk(KERN_INFO "openFileSearch: Searching for open files named %s\n",
 			filename);
 
 	new_search();
-	ofs_search_r(&init_task, &ofs_filter_by_name, filename);
+	ofs_search_all(&ofs_filter_by_name, filename);
 	search_performed_ = 1;
 
 	printk(KERN_INFO "openFileSearch: %d results found\n", result_count_);
@@ -283,7 +293,7 @@ static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd,
 		case OFS_NAME:
 			return ofs_find_open_files_with_name((char *) ioctl_arg);
 		default:
-			printk(KERN_INFO "openFileSearch: Unknown search " \
+			printk(KERN_WARNING "openFileSearch: Unknown search " \
 					"command %u\n", ioctl_cmd);
 			return -EINVAL;
 	}
@@ -304,7 +314,7 @@ static ssize_t ofs_read(struct file *flip, char __user *buffer,
 
 	// require a prior call of ioctl
 	if (!search_performed_) {
-		printk(KERN_INFO "openFileSearch: Search has not been " \
+		printk(KERN_WARNING "openFileSearch: Search has not been " \
 				"performed yet or all results have already " \
 				"been read\n");
 		return -ESRCH;

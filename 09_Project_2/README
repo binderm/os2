@@ -13,7 +13,7 @@ Author:     Marcel Binder
 * read any number of results via read()
   read can be called multiple times until all results have been read
   a new search can be performed any time
-* special locking on task_struct
+* locking on task_struct
 * RCU locking on cred, files_struct, fdtable and file 
 
 Building
@@ -66,16 +66,17 @@ OFS_UID, OFS_OWNER and OFS_NAME
 -------------------------------
 For this case the search basis are *all* open files of *all* tasks. But only
 files matching certain criteria (equal UID, owner or name) should be included
-in the results.
-Idea: The init task (PID 1) is the root of the process tree and is used as
-entry point for iterating over all processes. The kernel exports a symbol
-init_task of type struct task_struct which is actually the process with PID 0
-(scheduler/swapper process) but this entry point is fine as well.
+in the results. open_search_all()
 
-ofs_search_r() uses depth-search on the task tree. It calls ofs_search() for
-the provided task and afterwards recursively itself for all children of the
-task. The recursion terminates if either all chilren have been processed or the
-maximum number of results has been reached. 
+First idea: The init task (PID 1) is the root of the process tree and is used
+as entry point to perform a depth-search on the process tree (init_task is
+exported by the kernel and task_struct contains a list of children).
+
+BUT: Kernel stack limited -> recursions should be avoided
+
+task_struct has another list called 'tasks' which is a list of all tasks.
+Used by the macro for_each_process()
+-> iteration instead of recursion in ofs_search_all()
 
 read
 ====
