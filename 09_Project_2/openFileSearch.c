@@ -24,7 +24,6 @@ static unsigned int result_count_;
 static int read_position_;
 
 static int ofs_open(struct inode *inode, struct file *flip) {
-	printk(KERN_INFO "openFileSearch: Open request\n");
 	// do not allow concurrent use (static members would cause race
 	// conditions!)
 	if (device_opened_) {
@@ -48,7 +47,6 @@ static int ofs_open(struct inode *inode, struct file *flip) {
 }
 
 static int ofs_release(struct inode *inode, struct file *flip) {
-	printk(KERN_INFO "openFileSearch: Release request\n");
 	device_opened_ = 0;
 	kfree(results_);
 
@@ -132,8 +130,9 @@ static void ofs_found(pid_t pid, uid_t uid, struct file *open_fd,
 	ofs_result_inode(result, open_fd->f_inode);
 
 	if (filter(result, filter_arg)) {
+		// include this open file in the results
 		result_count_++;
-	}
+	} // else the result will be overwritten by the next result
 }
 
 static void ofs_search(struct task_struct *task, ofs_result_filter filter,
@@ -154,9 +153,9 @@ static void ofs_search(struct task_struct *task, ofs_result_filter filter,
 	files = task->files;
 
 	rcu_read_lock();
-	// reference to file_struct::fdt MUST be done via files_fdtable macro
-	// --> ensures lock-free dereference (see <kernel>/Documentation/filesystems/files.txt)
-	// (files_struct::fdt initially points to files_struct::fdtab but elsewhere after possible expansion of fdtable)
+	// (see <kernel>/Documentation/filesystems/files.txt)
+	// (files_struct::fdt initially points to files_struct::fdtab but
+	// elsewhere after possible expansion of fdtable)
 	fdt = files_fdtable(files);
 
 	max_fds = fdt->max_fds;
@@ -179,10 +178,12 @@ static void ofs_search_r(struct task_struct *task, ofs_result_filter filter,
 	struct list_head *cursor;
 	struct task_struct *child;
 
-	ofs_search(task, filter, filter_arg);
-	list_for_each(cursor, &(task->children)) {
-		child = list_entry(cursor, struct task_struct, sibling);
-		ofs_search_r(child, filter, filter_arg);
+	if (result_count_ < OFS_MAX_RESULTS) {
+		ofs_search(task, filter, filter_arg);
+		list_for_each(cursor, &(task->children)) {
+			child = list_entry(cursor, struct task_struct, sibling);
+			ofs_search_r(child, filter, filter_arg);
+		}
 	}
 }
 
@@ -218,10 +219,6 @@ static long ofs_find_files_opened_by_user(unsigned int uid) {
 	printk(KERN_INFO "openFileSearch: Searching for open files of user %u\n",
 			uid);
 
-	// init_task is actually the process with pid 0 (the scheduler/swapper
-	// process)
-	// it is scheduled when a processor is idle... and its the father of all
-	// tasks --> use it as entry point for traversing all tasks
 	new_search();
 	ofs_search_r(&init_task, &ofs_filter_by_uid, &uid);
 	search_performed_ = 1;
@@ -242,7 +239,24 @@ static long ofs_find_open_files_owned_by_user(unsigned int owner) {
 	return 0;
 }
 
-static long ofs_find_open_files_with_name(char *filename) {
+static long ofs_find_open_files_with_name(__user char *name) {
+	size_t filename_length = strlen(name);
+	if (filename_length > OFS_RESULT_NAME_MAX_LENGTH) {
+		printk(KERN_INFO "openFileSearch: Searched filename must " \
+				"not have more than %lu characters but has " \
+				"%lu\n", OFS_RESULT_NAME_MAX_LENGTH,
+				filename_length);
+		return -EINVAL;
+	}
+
+	char *filename = kmalloc(OFS_RESULT_NAME_MAX_LENGTH
+			* sizeof(char), GFP_KERNEL);
+	if (!filename) {
+		printk(KERN_ERR "Failed to allocate memory for filename\n");
+		return -1;
+	}
+	strlcpy(filename, name, OFS_RESULT_NAME_MAX_LENGTH);
+
 	printk(KERN_INFO "openFileSearch: Searching for open files named %s\n",
 			filename);
 

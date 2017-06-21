@@ -1,11 +1,20 @@
 ===============================================================================
-System Open File Search
-OS2 Project Assignment #2
-Author: Marcel Binder
+Munich University of Applied Sciences
+Department of Computer Science and Mathematics
+
+Course:     Operating Systems 2
+Assignment: Project 2
+Author:     Marcel Binder
 ===============================================================================
 
                             Working features
-all requested 
+
+* perform a search via ioctl() (OFS_PID, OFS_UID, OFS_OWNER and OFS_NAME)
+* read any number of results via read()
+  read can be called multiple times until all results have been read
+  a new search can be performed any time
+* special locking on task_struct
+* RCU locking on cred, files_struct, fdtable and file 
 
 Building
 --------
@@ -14,11 +23,12 @@ Building
 
 Header file for user programs
 -----------------------------
-(constants for IOCTL commands and struct ofs_result)
+(constants for ioctl() commands and struct ofs_result)
 openFileSearch.h
 
 
                              Implementation
+
 open
 ====
 The implementation cannot be used concurrently by multiple threads due to the
@@ -35,9 +45,9 @@ flag is cleared so opening the device is permitted again.
 
 ioctl
 =====
-Depending on the IOCTL command the search request is dispatched to an
-appropriate method. If an invaild IOCTL command is provided the call fails with
--EINVAL.
+Depending on the ioctl() command the search request is dispatched to an
+appropriate method. If an invaild ioctl() command is provided the call fails
+with -EINVAL.
 
 OFS_PID
 -------
@@ -57,11 +67,15 @@ OFS_UID, OFS_OWNER and OFS_NAME
 For this case the search basis are *all* open files of *all* tasks. But only
 files matching certain criteria (equal UID, owner or name) should be included
 in the results.
-Idea: The init task (PID 1) is the root of the process tree and should be the
-entry point for traversing all processes. The kernel exports a symbol init_task
-of type struct task_struct which is actually the process with PID 0 (scheduler
-or swapper process). But this works fine as well. The macro list_for_each is
-used to iterate over the children.
+Idea: The init task (PID 1) is the root of the process tree and is used as
+entry point for iterating over all processes. The kernel exports a symbol
+init_task of type struct task_struct which is actually the process with PID 0
+(scheduler/swapper process) but this entry point is fine as well.
+
+ofs_search_r() uses depth-search on the task tree. It calls ofs_search() for
+the provided task and afterwards recursively itself for all children of the
+task. The recursion terminates if either all chilren have been processed or the
+maximum number of results has been reached. 
 
 read
 ====
@@ -87,6 +101,7 @@ read is called each time with a buffer of size 3
 |             | yet                           |        |
 
                                Known bugs
+
 * Not a real bug but a special behaviour for handling too long filenames:
   Especially the paths of system.journal, user-<UID>.journal and
   user@<UID>.service are much longer than 64 characters. In the results these
