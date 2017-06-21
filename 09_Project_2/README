@@ -7,8 +7,10 @@ Assignment: Project 2
 Author:     Marcel Binder
 ===============================================================================
 
+                                   (1)
                             Working features
 
+* all requested
 * perform a search via ioctl() (OFS_PID, OFS_UID, OFS_OWNER and OFS_NAME)
 * read any number of results via read()
   read can be called multiple times until all results have been read
@@ -23,70 +25,100 @@ Building
 
 Header file for user programs
 -----------------------------
-(constants for ioctl() commands and struct ofs_result)
 openFileSearch.h
 
 
+                                   (2)
                              Implementation
 
 open
 ====
-The implementation cannot be used concurrently by multiple threads due to the
-usage of static variables and missing synchronization. Therefore open checks
-whether the device is already in use and fails with -EBUSY if so. Any search of
-a previous user is discarded.
-As the array for the results is likely to be required multiple times and can be
-reused for multiple searches it is allocated in open.
+* driver cannot be used concurrently -> block with -EBUSY if alread in use
+* discard any search performed by a previous caller
+* allocate memory for the result array
 
 release
 =======
-The memory allocated for storing the results is freed and the device_opened_
-flag is cleared so opening the device is permitted again.
+* free memory of result array
+* clear device_opened_ flag -> open is permitted again
 
 ioctl
 =====
-Depending on the ioctl() command the search request is dispatched to an
-appropriate method. If an invaild ioctl() command is provided the call fails
-with -EINVAL.
+* dispatches to ofs_search_open_files_by_xxx() method depending on command
+* casts void pointer
+* searched filename is copied to kernel memory
+* results are copied to passed address in user memory
+* any previous search is discarded by clearing the search_performed_ flag
 
 OFS_PID
 -------
-For this case *all* open files of a *single* task are queried. The struct
-task_struct is requested for the provided PID. The request fails in case of an
-non existing PID which is indicated by returning -EINVAL. The actual search is
-performed in ofs_search() which is called with the found struct task_struct and
-a filter matching all results.
+* search all open files of a *single* task
+* requests task_struct for given PID
+  if not possible -> PID invalid -> return -EINVAL
+* actual search is performed by calling ofs_search() with a 'all-match' filter
+  (see description below)
 
-ofs_search() traverses the open files of a single task converting each into an
-struct ofs_result and applying a filter to it. Results matching the filter
-criteria are added at the end of the result array all others are discarded. If
-the maximum number of results is reached the traversation is stopped.
+ofs_search()
+* traverses the open files of a single task
+* converting each into an ofs_result
+* writes into next free position in result array
+* applies filter method which is passed by the called to all results
+* if result passes filter -> increment result counter
+  -> do not overwrite the result with the next one
+* if result is filtered out -> it will be overwritten by next result
+* returns if either all open files have been processed or maximum number of
+  results has been reached
 
 OFS_UID, OFS_OWNER and OFS_NAME
 -------------------------------
-For this case the search basis are *all* open files of *all* tasks. But only
-files matching certain criteria (equal UID, owner or name) should be included
-in the results. open_search_all()
+* search in all open files of *all* tasks
+* criteria (by PID, UID, owner) are implemented as filter methods which are
+  passed to ofs_search_all() (see description below)
 
-First idea: The init task (PID 1) is the root of the process tree and is used
-as entry point to perform a depth-search on the process tree (init_task is
-exported by the kernel and task_struct contains a list of children).
+ofs_search_all()
+* First idea:
+  Use init task as entry point for traversing the process tree (task_struct
+  has list of children which can be used for depth-search)
+* BUT: depth-search would be implemented recursively -> recursion should be
+  avoided in the kernel as its stack is limited!
+* solution: macro for_each_process() uses the tasks field of task_struct
+  (= list of all tasks in the system) to iterate over all tasks starting at
+  init_task
+* init_task is exported by the kernel
+  not actually the init task with PID 1 because it has PID 0 assigned
+  + init_task is skipped when using for_each_process
+  -> init_task represents swapper process which is not important for the open
+  file search
+* ofs_search_all() calls ofs_search() for each task
+* stops if either all tasks have been processed or the maximum number of
+  results has been reached
 
-BUT: Kernel stack limited -> recursions should be avoided
+NOTICES ON FILENAMES:
+* ofs_result.name contains the full path of the opened file
+  OFS_NAME also expects the full path
+  the short name (= filename) is only used if the path is too long
+  e.g. for system.journal, user-<UID>.journal and user@<UID>.service
+* d_path is used to reconstruct paths
+  -> special files like sockets and pipes are named
+     socket:[295] and pipe:[1432]
+     this notation can also be used for OFS_NAME searches
 
-task_struct has another list called 'tasks' which is a list of all tasks.
-Used by the macro for_each_process()
--> iteration instead of recursion in ofs_search_all()
 
 read
 ====
-After a search has been performed read() can be called multiple times until no
-more results are available. Due to the fact that ofs_search() stops inserting
-when reaching the array capacity read() can rely on read_count_.
+* can only be called after a search has been performed via ioctl()
+  returns -ESRCH otherwise
+* can be called multiple times until no more results are available
+  BUT at least once if ioctl() was successful (even if no results were found)
+* if no more results are available read() returns 0 and clears the
+  search_performed_ flag -> further calls will return -ESRCH (see example
+  below)
+* ofs_search() stops when reaching the result array's capacity
+  -> read() can rely on read_count_
 
 Example:
-10 elements have been found during search
-read is called each time with a buffer of size 3
+search: 10 elements found
+call read() multiple times with a buffer of size 3
 
 | read() call | filled in buffer              | return |
 |-------------|-------------------------------|--------|
@@ -101,13 +133,10 @@ read is called each time with a buffer of size 3
 |             | no search has been performed  |        |
 |             | yet                           |        |
 
-                               Known bugs
 
-* Not a real bug but a special behaviour for handling too long filenames:
-  Especially the paths of system.journal, user-<UID>.journal and
-  user@<UID>.service are much longer than 64 characters. In the results these
-  names will be shortened e.g. ".../system.journal"
-  Searching by name can also be performed by using the .../ prefix.
+                                   (3)
+                               Known bugs
+* none
 
 Tested with following kernels (uname -r -v)
 * 4.11.3-1-ARCH #1 SMP PREEMPT

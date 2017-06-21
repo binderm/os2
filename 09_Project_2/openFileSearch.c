@@ -76,43 +76,28 @@ int ofs_filter_by_name(struct ofs_result *result, void *filter_arg) {
 	return strncmp(result->name, name, OFS_RESULT_NAME_MAX_LENGTH) == 0;
 }
 
-static void ofs_result_path(struct ofs_result *result, struct path *path) {
-	char *name_buffer;
-	char *name;
+static void ofs_path_to_result(struct ofs_result *result, struct path *path) {
+	char *name = d_path(path, result->name, OFS_RESULT_NAME_MAX_LENGTH);
 	char *short_name;
-	int error;
 
-	name_buffer = kmalloc(OFS_RESULT_NAME_MAX_LENGTH * sizeof(char),
-			GFP_KERNEL);
-	if (!name_buffer) {
-		printk(KERN_ERR "openFileSearch: Allocation of result name " \
-				"buffer failed\n");
-		return;
+	if (IS_ERR(name)) {
+		if (PTR_ERR(name) == -ENAMETOOLONG) {
+			short_name = path->dentry->d_iname;
+			printk(KERN_WARNING "openFileSearch: filename too " \
+					" long, using short version: %s\n",
+					short_name);
+			strlcpy(result->name, short_name,
+					OFS_RESULT_NAME_MAX_LENGTH);
+		} else {
+			printk(KERN_ERR "Failed to build filename\n");
+			strcpy(result->name, "(error)");
+		}
+	} else {
+		strlcpy(result->name, name, OFS_RESULT_NAME_MAX_LENGTH);
 	}
-
-	name = d_path(path, name_buffer, OFS_RESULT_NAME_MAX_LENGTH);
-	error = IS_ERR(name) ? PTR_ERR(name) : 0;
-	if (error == -ENAMETOOLONG) {
-		name = name_buffer;
-		strcpy(name, ".../");
-		short_name = path->dentry->d_iname;
-		strlcpy(&name[4], short_name, OFS_RESULT_NAME_MAX_LENGTH);
-		printk(KERN_WARNING "openFileSearch: filename too long, " \
-				"going to use short version instead: .../%s\n",
-				short_name);
-	} else if (error) {
-		name = name_buffer;
-		name = "(error)";
-		printk(KERN_ERR "openFileSearch: Unexpected error when " \
-				"reconstructing the path of an open file (%ld)\n",
-				PTR_ERR(name));
-	}
-
-	strlcpy(result->name, name, OFS_RESULT_NAME_MAX_LENGTH);
-	kfree(name_buffer);
 }
 
-static void ofs_result_inode(struct ofs_result *result, struct inode *inode) {
+static void ofs_inode_to_result(struct ofs_result *result, struct inode *inode) {
 	inode_lock_shared(inode);
 	result->permissions = inode->i_mode;
 	result->owner = (inode->i_uid).val;
@@ -121,20 +106,22 @@ static void ofs_result_inode(struct ofs_result *result, struct inode *inode) {
 	inode_unlock_shared(inode);
 }
 
-static void ofs_found(pid_t pid, uid_t uid, struct file *open_fd,
-		ofs_result_filter filter, void *filter_arg) {
+static void ofs_build_result(pid_t pid, uid_t uid, struct file *open_fd) {
 	struct ofs_result *result = &results_[result_count_];
 
 	result->pid = pid;
 	result->uid = uid;
 
-	ofs_result_path(result, &open_fd->f_path);
-	ofs_result_inode(result, open_fd->f_inode);
+	ofs_path_to_result(result, &open_fd->f_path);
+	ofs_inode_to_result(result, open_fd->f_inode);
+}
 
-	if (filter(result, filter_arg)) {
+static void ofs_filter_result(ofs_result_filter filter, void *filter_arg) {
+	if (filter(&results_[result_count_], filter_arg)) {
 		// include this open file in the results
 		result_count_++;
-	} // else the result will be overwritten by the next result
+	}
+	// else the result will be overwritten by the next result
 }
 
 static void ofs_search(struct task_struct *task, ofs_result_filter filter,
@@ -167,7 +154,8 @@ static void ofs_search(struct task_struct *task, ofs_result_filter filter,
 			// it's recommended to use fcheck_files() here
 			// but it would check if fd < max_fds on every call
 			open_fd = rcu_dereference_raw(fdt->fd[fd]);
-			ofs_found(pid, uid, open_fd, filter, filter_arg);
+			ofs_build_result(pid, uid, open_fd);
+			ofs_filter_result(filter, filter_arg);
 			rcu_read_unlock();
 		}
 	}
@@ -196,8 +184,8 @@ static long ofs_search_open_files_by_pid(pid_t requested_pid) {
 	struct pid *pid;
 	struct task_struct *task;
 
-	printk(KERN_INFO "openFileSearch: Searching for open files of task %d\n",
-			requested_pid);
+	printk(KERN_INFO "openFileSearch: Searching for open files of " \
+			"process %d\n", requested_pid);
 
 	if (!(pid = find_vpid(requested_pid))
 			|| !(task = pid_task(pid, PIDTYPE_PID))) {
@@ -298,7 +286,7 @@ static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd,
 
 	if (!err) {
 		printk(KERN_INFO "openFileSearch: %d results found\n",
-		result_count_);
+				result_count_);
 	}
 	return err;
 }
