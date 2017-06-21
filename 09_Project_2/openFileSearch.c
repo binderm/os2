@@ -192,7 +192,7 @@ static void new_search(void) {
 	read_position_ = 0;
 }
 
-static long ofs_find_files_opened_by_process(pid_t requested_pid) {
+static long ofs_search_open_files_by_pid(pid_t requested_pid) {
 	struct pid *pid;
 	struct task_struct *task;
 
@@ -209,36 +209,30 @@ static long ofs_find_files_opened_by_process(pid_t requested_pid) {
 	new_search();
 	ofs_search(task, &ofs_no_filter, NULL);
 	search_performed_ = 1;
-
-	printk(KERN_INFO "openFileSearch: %d results found\n", result_count_);
 	return 0;
 }
 
-static long ofs_find_files_opened_by_user(unsigned int uid) {
+static long ofs_search_open_files_by_uid(unsigned int uid) {
 	printk(KERN_INFO "openFileSearch: Searching for open files of user %u\n",
 			uid);
 
 	new_search();
 	ofs_search_all(&ofs_filter_by_uid, &uid);
 	search_performed_ = 1;
-
-	printk(KERN_INFO "openFileSearch: %d results found\n", result_count_);
 	return 0;
 }
 
-static long ofs_find_open_files_owned_by_user(unsigned int owner) {
+static long ofs_search_open_files_by_owner(unsigned int owner) {
 	printk(KERN_INFO "openFileSearch: Searching for open files owned by " \
 			"user %u\n", owner);
 
 	new_search();
 	ofs_search_all(&ofs_filter_by_owner, &owner);
 	search_performed_ = 1;
-
-	printk(KERN_INFO "openFileSearch: %d results found\n", result_count_); 
 	return 0;
 }
 
-static long ofs_find_open_files_with_name(__user char *name) {
+static long ofs_search_open_files_by_name(__user char *name) {
 	char *filename;
 	size_t length;
 
@@ -273,30 +267,40 @@ static long ofs_find_open_files_with_name(__user char *name) {
 	new_search();
 	ofs_search_all(&ofs_filter_by_name, filename);
 	search_performed_ = 1;
-
-	printk(KERN_INFO "openFileSearch: %d results found\n", result_count_);
 	return 0;
 }
 
 static long ofs_ioctl(struct file *flip, unsigned int ioctl_cmd,
 		unsigned long ioctl_arg) {
+	long err;
+
 	switch (ioctl_cmd) {
 		case OFS_PID:
-			return ofs_find_files_opened_by_process(
+			err = ofs_search_open_files_by_pid(
 					*(pid_t *) ioctl_arg);
+			break;
 		case OFS_UID:
-			return ofs_find_files_opened_by_user(
+			err = ofs_search_open_files_by_uid(
 					*(unsigned int *) ioctl_arg);
+			break;
 		case OFS_OWNER:
-			return ofs_find_open_files_owned_by_user(
+			err = ofs_search_open_files_by_owner(
 					*(unsigned int *) ioctl_arg);
+			break;
 		case OFS_NAME:
-			return ofs_find_open_files_with_name((char *) ioctl_arg);
+			err = ofs_search_open_files_by_name((char *) ioctl_arg);
+			break;
 		default:
 			printk(KERN_WARNING "openFileSearch: Unknown search " \
 					"command %u\n", ioctl_cmd);
 			return -EINVAL;
 	}
+
+	if (!err) {
+		printk(KERN_INFO "openFileSearch: %d results found\n",
+		result_count_);
+	}
+	return err;
 }
 
 static inline unsigned int ofs_min(unsigned int a, unsigned int b) {
